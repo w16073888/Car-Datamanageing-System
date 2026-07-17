@@ -27,6 +27,11 @@ bool basedataapi::writeInfo(QString di){
 
 /*
  * executeSqlFile() — 读取 .sql 文件并逐条执行其中的 SQL 语句
+ *
+ * 处理方式：逐行读取，跳过纯注释行（-- 开头）和空行，
+ * 然后将剩余行拼接后按分号分割、逐条执行。
+ * 这样可以避免"整块以一个注释开头导致整条语句被误跳过"的问题。
+ *
  * 参数：
  *   filePath       : SQL 文件的完整路径
  *   connectionName : 数据库连接名称
@@ -45,13 +50,21 @@ bool executeSqlFile(const QString& filePath, const QString& connectionName = "")
         return false;
     }
 
-    // 读取全部 SQL 内容
+    // 逐行读取，过滤掉纯注释行和空行
+    // 注意：-- 开头的行是 SQL 注释，不应参与执行
+    QString cleanSql;
     QTextStream in(&file);
-    QString sql = in.readAll();
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith("--")) {
+            continue;   // 跳过空行和注释行
+        }
+        cleanSql += line + "\n";
+    }
     file.close();
 
     // 按分号分割为多条 SQL 语句
-    QStringList statements = sql.split(';');
+    QStringList statements = cleanSql.split(';');
 
     // 根据 connectionName 获取对应的数据库对象，创建查询对象
     QSqlDatabase db = connectionName.isEmpty()
@@ -65,8 +78,8 @@ bool executeSqlFile(const QString& filePath, const QString& connectionName = "")
     for (const QString& stmt : statements) {
         QString trimmedSql = stmt.trimmed();
 
-        // 跳过空语句和纯注释行（-- 开头的行）
-        if (trimmedSql.isEmpty() || trimmedSql.startsWith("--")) {
+        // 跳过空语句
+        if (trimmedSql.isEmpty()) {
             continue;
         }
 
