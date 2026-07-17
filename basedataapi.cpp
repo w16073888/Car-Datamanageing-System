@@ -29,41 +29,61 @@ bool basedataapi::writeInfo(QString di){
     return 1;
 }
 
-bool executeSqlFile(const QString& filePath) {
-    qDebug()<<filePath;
+/*
+ * executeSqlFile() — 读取 .sql 文件并逐条执行其中的 SQL 语句
+ * 参数：
+ *   filePath       : SQL 文件的完整路径
+ *   connectionName : 数据库连接名称
+ *                    - 传入空字符串（默认值）→ 对默认连接执行
+ *                    - 传入具体连接名     → 对该命名连接执行
+ * 返回：true 表示全部执行成功，false 表示有语句执行失败
+ */
+bool executeSqlFile(const QString& filePath, const QString& connectionName = "") {
+    qDebug() << "[executeSqlFile] 正在读取：" << filePath
+             << "  连接：" << (connectionName.isEmpty() ? "default" : connectionName);
+
+    // 打开 SQL 文件
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qDebug() << "无法打开 SQL 文件：" << filePath;
+        qDebug() << "[executeSqlFile] 无法打开 SQL 文件：" << filePath;
         return false;
     }
 
+    // 读取全部 SQL 内容
     QTextStream in(&file);
     QString sql = in.readAll();
     file.close();
 
+    // 按分号分割为多条 SQL 语句
     QStringList statements = sql.split(';');
-    QSqlQuery query;
+
+    // 根据 connectionName 获取对应的数据库对象，创建查询对象
+    QSqlDatabase db = connectionName.isEmpty()
+                      ? QSqlDatabase::database()          // 默认连接
+                      : QSqlDatabase::database(connectionName); // 命名连接
+    QSqlQuery query(db);
+
     int successCount = 0;
     int failCount = 0;
 
-    for (const QString& sql : statements) {
-        QString trimmedSql = sql.trimmed();
-        if (trimmedSql.isEmpty()) {
+    for (const QString& stmt : statements) {
+        QString trimmedSql = stmt.trimmed();
+
+        // 跳过空语句和纯注释行（-- 开头的行）
+        if (trimmedSql.isEmpty() || trimmedSql.startsWith("--")) {
             continue;
         }
 
         if (!query.exec(trimmedSql)) {
-            qDebug() << "   执行 SQL 失败：" << query.lastError().text();
-            qDebug() << "   失败的语句：" << trimmedSql;
+            qDebug() << "[executeSqlFile] 执行失败：" << query.lastError().text();
+            qDebug() << "[executeSqlFile] 失败语句：" << trimmedSql;
             failCount++;
         } else {
             successCount++;
         }
     }
 
-    qDebug() << "   成功：" << successCount << "条";
-    qDebug() << "   失败：" << failCount << "条";
-
+    qDebug() << "[executeSqlFile] 完成 —— 成功：" << successCount << "条  失败：" << failCount << "条";
     return failCount == 0;
 }
 
@@ -83,18 +103,61 @@ basedataapi::basedataapi(){
 
 }
 
+/*
+ * init() — 程序启动时的数据库初始化入口
+ *
+ * 功能：
+ *   1. 确保根目录 D:/Sysdata 存在
+ *   2. 创建并打开四个业务数据库的连接：
+ *        car.db  — 车辆信息（车牌号、车架号等）
+ *        cus.db  — 车主信息（姓名、电话等）
+ *        ser.db  — 进店服务信息（维修记录、公里数等）
+ *        ware.db — 备件信息（编号、名称、库存等）
+ *   3. 对每个数据库执行对应的建表 SQL 文件（如 car.sql），
+ *      若表已存在则不会重复创建（CREATE TABLE IF NOT EXISTS）
+ *
+ * 注意：
+ *   - 每个数据库使用独立的"命名连接"（第二个参数），
+ *     后续增删查改时需通过对应的连接名来操作
+ *   - SQL 建表文件需放在 D:/Sysdata/ 目录下
+ */
 void basedataapi::init(){
-    QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
-    QString dbPath = this->getRootPath() + "/employee.db";
-    qDebug() << "数据库Path：" << dbPath;
-    db.setDatabaseName(dbPath);
-
-    if (!db.open()) {
-        qDebug() << "数据库打开失败：" << db.lastError().text();
+    // 第一步：确保根目录存在
+    QDir dir;
+    if (!dir.exists(this->getRootPath())) {
+        dir.mkpath(this->getRootPath());
+        qDebug() << "[init] 已创建根目录：" << this->getRootPath();
     }
-    qDebug() << "连接成功";
 
-    executeSqlFile(this->getRootPath()+"/person.sql");
+    // 第二步：初始化四个业务数据库
+    // 配置表：{ 连接名, 数据库文件名, SQL建表文件 }
+    const QString DB_CONFIG[4][3] = {
+        {"car_connection",  "car.db",  "car.sql"},   // 车辆信息
+        {"cus_connection",  "cus.db",  "cus.sql"},   // 车主信息
+        {"ser_connection",  "ser.db",  "ser.sql"},   // 进店服务信息
+        {"ware_connection", "ware.db", "ware.sql"}    // 备件信息
+    };
+
+    for (int i = 0; i < 4; i++) {
+        QString connName   = DB_CONFIG[i][0];  // 数据库连接名称（如 "car_connection"）
+        QString dbFileName = DB_CONFIG[i][1];  // 数据库文件名（如 "car.db"）
+        QString sqlFileName= DB_CONFIG[i][2];  // 建表 SQL 文件名（如 "car.sql"）
+
+        // 创建命名连接（第二个参数指定连接名，用于区分不同数据库）
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+        QString fullDbPath = this->getRootPath() + "/" + dbFileName;
+        db.setDatabaseName(fullDbPath);
+
+        // 打开数据库（若 .db 文件不存在则自动创建）
+        if (!db.open()) {
+            qDebug() << "[init]" << dbFileName << "打开失败：" << db.lastError().text();
+        } else {
+            qDebug() << "[init]" << dbFileName << "连接成功（连接名：" << connName << "）";
+
+            // 执行建表 SQL，指定连接名确保在正确的数据库上执行
+            executeSqlFile(this->getRootPath() + "/" + sqlFileName, connName);
+        }
+    }
 }
 
 basedataapi::~basedataapi(){
