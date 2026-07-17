@@ -9,10 +9,6 @@ basedataapi& basedataapi::getInstance(){return instance;}
 
 QString basedataapi::getRootPath(){return m_rootPath;}
 
-int basedataapi::getPermission(){
-    return this->Per;
-}
-
 bool basedataapi::writeInfo(QString di){
     QString time=QDateTime::currentDateTime().toString();
     QFile text(this->m_rootPath+"/info.txt");
@@ -87,18 +83,7 @@ bool executeSqlFile(const QString& filePath, const QString& connectionName = "")
     return failCount == 0;
 }
 
-void basedataapi::setPermission(int sta){
-    switch(sta){
-    case 1:this->Per=1;break;
-    case 2:this->Per=2;break;
-    case 3:this->Per=3;break;
-    case 0:this->Per=0;break;
-    default:qDebug()<<"请输入合法（0-3）的权限";
-    }
-}
-
 basedataapi::basedataapi(){
-    this->Per=0;
     inquire_list=new QVector<QVector<QStringList>*>;
 
 }
@@ -172,171 +157,563 @@ basedataapi::~basedataapi(){
 }
 
 
-bool basedataapi::save(const QString& name, const QString& depart,
-                       const QString& id, const QString& photo, const QString& chara)
+/* ============================================================
+ *  车辆信息 — car.db（表名 vehicles）
+ *  字段：license_plate(车牌号) / vin(车架号) / engine_number(发动机号)
+ *        purchase_date(购车日期) / inspection_date(年审日期) / insurance_date(保险日期)
+ *  主键：license_plate
+ * ============================================================ */
+
+bool basedataapi::saveCar(const QString& license_plate, const QString& vin,
+                           const QString& engine_number, const QString& purchase_date,
+                           const QString& inspection_date, const QString& insurance_date)
 {
-    if(!(Per>=2)){
-        qDebug()<<"当前权限不支持您进行操作！";
-        return 0;
-    }
-    // 检查必填字段
-    if (name.isEmpty() || depart.isEmpty() || id.isEmpty()) {
-        qDebug() << "保存失败：姓名、部门、工号不能为空";
-        return false;
-    }
-
-
-    //  处理图片
-    QString savedPhotoPath;
-    if (!photo.isEmpty() && QFile::exists(photo)) {
-        // 生成目标文件名
-        QString targetName = id;
-        QString targetPath = m_rootPath + "/photos/" + targetName;
-
-        // 拷贝文件
-        if (!QFile::copy(photo,targetPath)) {
-            qDebug() << "拷贝图片失败：" << photo << "->" << targetPath;
-            return false;
-        }
-
-        savedPhotoPath = targetPath;
-        qDebug() << "图片已保存到：" << savedPhotoPath;
-    } else {
-        qDebug() << "未提供图片或图片不存在，仅保存文本信息";
-    }
-
-    QString savedcharaPath;
-
-    if (!chara.isEmpty() && QFile::exists(chara)) {
-
-        // 生成目标文件名
-        QString targetName1 = id+"_chara";
-        QString targetPath1 = m_rootPath + "/charactors/" + targetName1;
-
-        // 拷贝文件
-        if (!QFile::copy(chara,targetPath1)) {
-            qDebug() << "拷贝特征值失败：" << chara << "->" << targetPath1;
-            return false;
-        }
-
-        savedcharaPath = targetPath1;
-        qDebug() << "特征值已保存到：" << savedcharaPath;
-    } else {
-        qDebug() << "未提供特征值或特征值不存在，仅保存文本信息";
-    }
-
-    // 保存到数据库
-    QSqlQuery query;
+    // 获取 car_connection 对应的数据库对象并创建查询
+    QSqlDatabase db = QSqlDatabase::database("car_connection");
+    QSqlQuery query(db);
+    // 准备 INSERT 语句，绑定所有字段
     query.prepare(
-        "INSERT INTO persons (name, department, employee_id, photo_path, charactor_path) "
-        "VALUES (:name, :department, :employee_id, :photo_path, :charactor_path)"
+        "INSERT INTO vehicles (license_plate, vin, engine_number, purchase_date, inspection_date, insurance_date) "
+        "VALUES (:lp, :vin, :en, :pd, :id, :ins)"
     );
-
-    query.bindValue(":name", name);
-    query.bindValue(":department", depart);
-    query.bindValue(":employee_id", id);
-    query.bindValue(":photo_path", savedPhotoPath);
-    query.bindValue(":charactor_path", savedcharaPath);
+    query.bindValue(":lp", license_plate);
+    query.bindValue(":vin", vin);
+    query.bindValue(":en", engine_number);
+    query.bindValue(":pd", purchase_date);
+    query.bindValue(":id", inspection_date);
+    query.bindValue(":ins", insurance_date);
 
     if (!query.exec()) {
-        qDebug() << "插入数据库失败 " << query.lastError().text();
+        qDebug() << "[saveCar] 插入失败：" << query.lastError().text();
         return false;
     }
-
-    qDebug() << "保存成功";
-    qDebug() << "   姓名：" << name;
-    qDebug() << "   部门：" << depart;
-    qDebug() << "   工号：" << id;
-    qDebug() << "   照片：" << (savedPhotoPath.isEmpty() ? "无" : savedPhotoPath);
-
+    qDebug() << "[saveCar] 成功 —— 车牌号：" << license_plate;
     return true;
 }
 
+bool basedataapi::deleteCar(const QString& license_plate)
+{
+    QSqlDatabase db = QSqlDatabase::database("car_connection");
+    QSqlQuery query(db);
+    query.prepare("DELETE FROM vehicles WHERE license_plate = :lp");
+    query.bindValue(":lp", license_plate);
 
-QVector<QStringList>* basedataapi::inquireContent(const int model,const QString& cloum){
-            //model:1->name,2->depart,3->id
-    if(!(Per>=1)){
-        qDebug()<<"当前权限不支持您进行操作！";
-        return 0;
+    if (!query.exec()) {
+        qDebug() << "[deleteCar] 删除失败：" << query.lastError().text();
+        return false;
     }
-    QVector<QStringList> *result=new QVector<QStringList>;
-    QSqlQuery query;
-    switch(model){
-        case 1:query.prepare("SELECT name, department, employee_id, photo_path,charactor_path FROM persons WHERE name = :cl");query.bindValue(":cl", cloum);break;
-        case 2:query.prepare("SELECT name, department, employee_id, photo_path,charactor_path FROM persons WHERE department = :cl");query.bindValue(":cl", cloum);break;
-        case 3:query.prepare("SELECT name, department, employee_id, photo_path,charactor_path FROM persons WHERE employee_id = :cl");query.bindValue(":cl", cloum);break;
-        default:qDebug()<<"请输入有效指令";
+    qDebug() << "[deleteCar] 成功 —— 车牌号：" << license_plate;
+    return true;
+}
+
+QVector<QStringList>* basedataapi::inquireCar(int model, const QString& value)
+{
+    QSqlDatabase db = QSqlDatabase::database("car_connection");
+    QSqlQuery query(db);
+
+    // model: 1=车牌号, 2=车架号, 3=发动机号
+    switch (model) {
+    case 1:
+        query.prepare("SELECT license_plate, vin, engine_number, purchase_date, inspection_date, insurance_date FROM vehicles WHERE license_plate = :v");
+        query.bindValue(":v", value);
+        break;
+    case 2:
+        query.prepare("SELECT license_plate, vin, engine_number, purchase_date, inspection_date, insurance_date FROM vehicles WHERE vin = :v");
+        query.bindValue(":v", value);
+        break;
+    case 3:
+        query.prepare("SELECT license_plate, vin, engine_number, purchase_date, inspection_date, insurance_date FROM vehicles WHERE engine_number = :v");
+        query.bindValue(":v", value);
+        break;
+    default:
+        qDebug() << "[inquireCar] 无效查询模式：" << model << "（1=车牌号, 2=车架号, 3=发动机号）";
+        return nullptr;
     }
-    query.exec();
-    while(query.next()) {
-        QStringList temp;
-        temp << query.value(0).toString()
-               << query.value(1).toString()
-               << query.value(2).toString()
-               << query.value(3).toString()
-               << query.value(4).toString();
-        (*result).append(temp);
+
+    QVector<QStringList>* result = new QVector<QStringList>;
+    if (!query.exec()) {
+        qDebug() << "[inquireCar] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
+    }
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()  // license_plate
+            << query.value(1).toString()  // vin
+            << query.value(2).toString()  // engine_number
+            << query.value(3).toString()  // purchase_date
+            << query.value(4).toString()  // inspection_date
+            << query.value(5).toString(); // insurance_date
+        result->append(row);
     }
     inquire_list->append(result);
     return result;
 }
 
-QVector<QStringList>* basedataapi::inquireContent(){
-    if(!(Per>=1)){
-        qDebug()<<"当前权限不支持您进行操作！";
-        return 0;
-    }
+QVector<QStringList>* basedataapi::inquireCar()
+{
+    QSqlDatabase db = QSqlDatabase::database("car_connection");
+    QSqlQuery query(db);
+    query.prepare("SELECT license_plate, vin, engine_number, purchase_date, inspection_date, insurance_date FROM vehicles");
 
-    QVector<QStringList> *result = new QVector<QStringList>;
-    QSqlQuery query;
-    query.prepare("SELECT name, department, employee_id, photo_path,charactor_path FROM persons");
+    QVector<QStringList>* result = new QVector<QStringList>;
     if (!query.exec()) {
-        qDebug() << "查询失败：" << query.lastError().text();
-        delete result;
-        return 0;
+        qDebug() << "[inquireCar] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
     }
-
-    while(query.next()) {
-        QStringList temp;
-        temp << query.value(0).toString()
-             << query.value(1).toString()
-             << query.value(2).toString()
-             << query.value(3).toString()
-             << query.value(4).toString();
-        (*result).append(temp);
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()
+            << query.value(1).toString()
+            << query.value(2).toString()
+            << query.value(3).toString()
+            << query.value(4).toString()
+            << query.value(5).toString();
+        result->append(row);
     }
-
     inquire_list->append(result);
     return result;
 }
 
-bool basedataapi::deleteContent(const QString& id){
-    if(!(Per>=3)){
-        qDebug()<<"当前权限不支持您进行操作！";
-        return 0;
-    }
-    QSqlQuery query;
-    query.prepare("DELETE FROM persons WHERE employee_id = :employee_id");
-    query.bindValue(":employee_id", id);
-
-    QVector<QStringList> *list=this->inquireContent(3,id);
-    for (QStringList employee : *list) {
-        qDebug()<<employee[3];
-        QFile::remove(employee[3]);
-        QFile::remove(employee[4]);
-    }
+bool basedataapi::updateCar(const QString& old_license_plate,
+                             const QString& license_plate, const QString& vin,
+                             const QString& engine_number, const QString& purchase_date,
+                             const QString& inspection_date, const QString& insurance_date)
+{
+    // 使用 UPDATE 语句，以原车牌号为 WHERE 条件进行更新
+    QSqlDatabase db = QSqlDatabase::database("car_connection");
+    QSqlQuery query(db);
+    query.prepare(
+        "UPDATE vehicles SET license_plate=:lp, vin=:vin, engine_number=:en, "
+        "purchase_date=:pd, inspection_date=:id, insurance_date=:ins "
+        "WHERE license_plate=:old_lp"
+    );
+    query.bindValue(":old_lp", old_license_plate);
+    query.bindValue(":lp", license_plate);
+    query.bindValue(":vin", vin);
+    query.bindValue(":en", engine_number);
+    query.bindValue(":pd", purchase_date);
+    query.bindValue(":id", inspection_date);
+    query.bindValue(":ins", insurance_date);
 
     if (!query.exec()) {
-        qDebug() << "删除失败：" << query.lastError().text();
+        qDebug() << "[updateCar] 更新失败：" << query.lastError().text();
         return false;
     }
-    qDebug() << "成功删除工号为 " << id << " 的员工";
+    qDebug() << "[updateCar] 成功 —— 原车牌号：" << old_license_plate;
     return true;
 }
 
-bool basedataapi::update(const QString& preid,const QString& name, const QString& depart,
-                         const QString& id, const QString& photo ,const QString& chara){
-    bool sta1=this->deleteContent(preid);
-    bool sta2=this->save(name,depart,id,photo,chara);
-    return sta1&&sta2;
+
+/* ============================================================
+ *  车主信息 — cus.db（表名 customers）
+ *  字段：id(自增主键) / owner_name(车主姓名) / owner_phone(车主电话)
+ *        driver_name(驾驶员姓名) / driver_phone(驾驶员电话)
+ * ============================================================ */
+
+bool basedataapi::saveCus(const QString& owner_name, const QString& owner_phone,
+                           const QString& driver_name, const QString& driver_phone)
+{
+    QSqlDatabase db = QSqlDatabase::database("cus_connection");
+    QSqlQuery query(db);
+    query.prepare(
+        "INSERT INTO customers (owner_name, owner_phone, driver_name, driver_phone) "
+        "VALUES (:on, :op, :dn, :dp)"
+    );
+    query.bindValue(":on", owner_name);
+    query.bindValue(":op", owner_phone);
+    query.bindValue(":dn", driver_name);
+    query.bindValue(":dp", driver_phone);
+
+    if (!query.exec()) {
+        qDebug() << "[saveCus] 插入失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[saveCus] 成功 —— 车主姓名：" << owner_name;
+    return true;
+}
+
+bool basedataapi::deleteCus(int id)
+{
+    QSqlDatabase db = QSqlDatabase::database("cus_connection");
+    QSqlQuery query(db);
+    query.prepare("DELETE FROM customers WHERE id = :id");
+    query.bindValue(":id", id);
+
+    if (!query.exec()) {
+        qDebug() << "[deleteCus] 删除失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[deleteCus] 成功 —— ID：" << id;
+    return true;
+}
+
+QVector<QStringList>* basedataapi::inquireCus(int model, const QString& value)
+{
+    QSqlDatabase db = QSqlDatabase::database("cus_connection");
+    QSqlQuery query(db);
+
+    // model: 1=车主姓名, 2=车主电话, 3=驾驶员姓名, 4=驾驶员电话
+    switch (model) {
+    case 1:
+        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE owner_name = :v");
+        query.bindValue(":v", value);
+        break;
+    case 2:
+        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE owner_phone = :v");
+        query.bindValue(":v", value);
+        break;
+    case 3:
+        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE driver_name = :v");
+        query.bindValue(":v", value);
+        break;
+    case 4:
+        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE driver_phone = :v");
+        query.bindValue(":v", value);
+        break;
+    default:
+        qDebug() << "[inquireCus] 无效查询模式：" << model << "（1=车主姓名, 2=车主电话, 3=驾驶员姓名, 4=驾驶员电话）";
+        return nullptr;
+    }
+
+    QVector<QStringList>* result = new QVector<QStringList>;
+    if (!query.exec()) {
+        qDebug() << "[inquireCus] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
+    }
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()  // id
+            << query.value(1).toString()  // owner_name
+            << query.value(2).toString()  // owner_phone
+            << query.value(3).toString()  // driver_name
+            << query.value(4).toString(); // driver_phone
+        result->append(row);
+    }
+    inquire_list->append(result);
+    return result;
+}
+
+QVector<QStringList>* basedataapi::inquireCus()
+{
+    QSqlDatabase db = QSqlDatabase::database("cus_connection");
+    QSqlQuery query(db);
+    query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers");
+
+    QVector<QStringList>* result = new QVector<QStringList>;
+    if (!query.exec()) {
+        qDebug() << "[inquireCus] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
+    }
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()
+            << query.value(1).toString()
+            << query.value(2).toString()
+            << query.value(3).toString()
+            << query.value(4).toString();
+        result->append(row);
+    }
+    inquire_list->append(result);
+    return result;
+}
+
+bool basedataapi::updateCus(int id,
+                             const QString& owner_name, const QString& owner_phone,
+                             const QString& driver_name, const QString& driver_phone)
+{
+    QSqlDatabase db = QSqlDatabase::database("cus_connection");
+    QSqlQuery query(db);
+    query.prepare(
+        "UPDATE customers SET owner_name=:on, owner_phone=:op, "
+        "driver_name=:dn, driver_phone=:dp WHERE id=:id"
+    );
+    query.bindValue(":id", id);
+    query.bindValue(":on", owner_name);
+    query.bindValue(":op", owner_phone);
+    query.bindValue(":dn", driver_name);
+    query.bindValue(":dp", driver_phone);
+
+    if (!query.exec()) {
+        qDebug() << "[updateCus] 更新失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[updateCus] 成功 —— ID：" << id;
+    return true;
+}
+
+
+/* ============================================================
+ *  进店服务信息 — ser.db（表名 services）
+ *  字段：id(自增主键) / repair_person(维修责任人) / repair_content(报修内容)
+ *        mileage(公里数) / labor_cost(工时费)
+ * ============================================================ */
+
+bool basedataapi::saveSer(const QString& repair_person, const QString& repair_content,
+                           int mileage, double labor_cost)
+{
+    QSqlDatabase db = QSqlDatabase::database("ser_connection");
+    QSqlQuery query(db);
+    query.prepare(
+        "INSERT INTO services (repair_person, repair_content, mileage, labor_cost) "
+        "VALUES (:rp, :rc, :mi, :lc)"
+    );
+    query.bindValue(":rp", repair_person);
+    query.bindValue(":rc", repair_content);
+    query.bindValue(":mi", mileage);
+    query.bindValue(":lc", labor_cost);
+
+    if (!query.exec()) {
+        qDebug() << "[saveSer] 插入失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[saveSer] 成功 —— 维修责任人：" << repair_person;
+    return true;
+}
+
+bool basedataapi::deleteSer(int id)
+{
+    QSqlDatabase db = QSqlDatabase::database("ser_connection");
+    QSqlQuery query(db);
+    query.prepare("DELETE FROM services WHERE id = :id");
+    query.bindValue(":id", id);
+
+    if (!query.exec()) {
+        qDebug() << "[deleteSer] 删除失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[deleteSer] 成功 —— ID：" << id;
+    return true;
+}
+
+QVector<QStringList>* basedataapi::inquireSer(int model, const QString& value)
+{
+    QSqlDatabase db = QSqlDatabase::database("ser_connection");
+    QSqlQuery query(db);
+
+    // model: 1=ID, 2=维修责任人
+    switch (model) {
+    case 1:
+        query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost FROM services WHERE id = :v");
+        query.bindValue(":v", value.toInt());
+        break;
+    case 2:
+        query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost FROM services WHERE repair_person = :v");
+        query.bindValue(":v", value);
+        break;
+    default:
+        qDebug() << "[inquireSer] 无效查询模式：" << model << "（1=ID, 2=维修责任人）";
+        return nullptr;
+    }
+
+    QVector<QStringList>* result = new QVector<QStringList>;
+    if (!query.exec()) {
+        qDebug() << "[inquireSer] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
+    }
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()  // id
+            << query.value(1).toString()  // repair_person
+            << query.value(2).toString()  // repair_content
+            << query.value(3).toString()  // mileage
+            << query.value(4).toString(); // labor_cost
+        result->append(row);
+    }
+    inquire_list->append(result);
+    return result;
+}
+
+QVector<QStringList>* basedataapi::inquireSer()
+{
+    QSqlDatabase db = QSqlDatabase::database("ser_connection");
+    QSqlQuery query(db);
+    query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost FROM services");
+
+    QVector<QStringList>* result = new QVector<QStringList>;
+    if (!query.exec()) {
+        qDebug() << "[inquireSer] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
+    }
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()
+            << query.value(1).toString()
+            << query.value(2).toString()
+            << query.value(3).toString()
+            << query.value(4).toString();
+        result->append(row);
+    }
+    inquire_list->append(result);
+    return result;
+}
+
+bool basedataapi::updateSer(int id,
+                             const QString& repair_person, const QString& repair_content,
+                             int mileage, double labor_cost)
+{
+    QSqlDatabase db = QSqlDatabase::database("ser_connection");
+    QSqlQuery query(db);
+    query.prepare(
+        "UPDATE services SET repair_person=:rp, repair_content=:rc, "
+        "mileage=:mi, labor_cost=:lc WHERE id=:id"
+    );
+    query.bindValue(":id", id);
+    query.bindValue(":rp", repair_person);
+    query.bindValue(":rc", repair_content);
+    query.bindValue(":mi", mileage);
+    query.bindValue(":lc", labor_cost);
+
+    if (!query.exec()) {
+        qDebug() << "[updateSer] 更新失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[updateSer] 成功 —— ID：" << id;
+    return true;
+}
+
+
+/* ============================================================
+ *  备件信息 — ware.db（表名 parts）
+ *  字段：part_id(备件编号) / name(名称) / quantity(数量)
+ *        price(金额) / supplier(供货商) / warranty_period(质保期)
+ *  主键：part_id
+ * ============================================================ */
+
+bool basedataapi::saveWare(const QString& part_id, const QString& name,
+                            int quantity, double price,
+                            const QString& supplier, const QString& warranty_period)
+{
+    QSqlDatabase db = QSqlDatabase::database("ware_connection");
+    QSqlQuery query(db);
+    query.prepare(
+        "INSERT INTO parts (part_id, name, quantity, price, supplier, warranty_period) "
+        "VALUES (:pid, :nm, :qt, :pr, :su, :wp)"
+    );
+    query.bindValue(":pid", part_id);
+    query.bindValue(":nm", name);
+    query.bindValue(":qt", quantity);
+    query.bindValue(":pr", price);
+    query.bindValue(":su", supplier);
+    query.bindValue(":wp", warranty_period);
+
+    if (!query.exec()) {
+        qDebug() << "[saveWare] 插入失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[saveWare] 成功 —— 备件编号：" << part_id;
+    return true;
+}
+
+bool basedataapi::deleteWare(const QString& part_id)
+{
+    QSqlDatabase db = QSqlDatabase::database("ware_connection");
+    QSqlQuery query(db);
+    query.prepare("DELETE FROM parts WHERE part_id = :pid");
+    query.bindValue(":pid", part_id);
+
+    if (!query.exec()) {
+        qDebug() << "[deleteWare] 删除失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[deleteWare] 成功 —— 备件编号：" << part_id;
+    return true;
+}
+
+QVector<QStringList>* basedataapi::inquireWare(int model, const QString& value)
+{
+    QSqlDatabase db = QSqlDatabase::database("ware_connection");
+    QSqlQuery query(db);
+
+    // model: 1=备件编号, 2=名称
+    switch (model) {
+    case 1:
+        query.prepare("SELECT part_id, name, quantity, price, supplier, warranty_period FROM parts WHERE part_id = :v");
+        query.bindValue(":v", value);
+        break;
+    case 2:
+        query.prepare("SELECT part_id, name, quantity, price, supplier, warranty_period FROM parts WHERE name = :v");
+        query.bindValue(":v", value);
+        break;
+    default:
+        qDebug() << "[inquireWare] 无效查询模式：" << model << "（1=备件编号, 2=名称）";
+        return nullptr;
+    }
+
+    QVector<QStringList>* result = new QVector<QStringList>;
+    if (!query.exec()) {
+        qDebug() << "[inquireWare] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
+    }
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()  // part_id
+            << query.value(1).toString()  // name
+            << query.value(2).toString()  // quantity（int 转为 QString）
+            << query.value(3).toString()  // price（double 转为 QString）
+            << query.value(4).toString()  // supplier
+            << query.value(5).toString(); // warranty_period
+        result->append(row);
+    }
+    inquire_list->append(result);
+    return result;
+}
+
+QVector<QStringList>* basedataapi::inquireWare()
+{
+    QSqlDatabase db = QSqlDatabase::database("ware_connection");
+    QSqlQuery query(db);
+    query.prepare("SELECT part_id, name, quantity, price, supplier, warranty_period FROM parts");
+
+    QVector<QStringList>* result = new QVector<QStringList>;
+    if (!query.exec()) {
+        qDebug() << "[inquireWare] 查询失败：" << query.lastError().text();
+        inquire_list->append(result);
+        return result;
+    }
+    while (query.next()) {
+        QStringList row;
+        row << query.value(0).toString()
+            << query.value(1).toString()
+            << query.value(2).toString()
+            << query.value(3).toString()
+            << query.value(4).toString()
+            << query.value(5).toString();
+        result->append(row);
+    }
+    inquire_list->append(result);
+    return result;
+}
+
+bool basedataapi::updateWare(const QString& old_part_id,
+                              const QString& part_id, const QString& name,
+                              int quantity, double price,
+                              const QString& supplier, const QString& warranty_period)
+{
+    QSqlDatabase db = QSqlDatabase::database("ware_connection");
+    QSqlQuery query(db);
+    query.prepare(
+        "UPDATE parts SET part_id=:pid, name=:nm, quantity=:qt, price=:pr, "
+        "supplier=:su, warranty_period=:wp WHERE part_id=:old_pid"
+    );
+    query.bindValue(":old_pid", old_part_id);
+    query.bindValue(":pid", part_id);
+    query.bindValue(":nm", name);
+    query.bindValue(":qt", quantity);
+    query.bindValue(":pr", price);
+    query.bindValue(":su", supplier);
+    query.bindValue(":wp", warranty_period);
+
+    if (!query.exec()) {
+        qDebug() << "[updateWare] 更新失败：" << query.lastError().text();
+        return false;
+    }
+    qDebug() << "[updateWare] 成功 —— 原备件编号：" << old_part_id;
+    return true;
 }

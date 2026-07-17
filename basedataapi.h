@@ -14,62 +14,101 @@
 #include <QTextStream>
 #include <QSqlDatabase>
 
-//#include <QCoreApplication>
-
-
-
 /*
- * 引入该库之后需要调用void setPermission(bool sta);设置权限，默认客户端，
- * 还需要在Appication对象创建之后手动init()
- * */
-
+ * ============================================================
+ *  basedataapi — 汽修公司数据记录及管理系统 数据层核心类
+ *
+ *  本类管理四个 SQLite 数据库，每个数据库对应一个业务模块：
+ *    car_connection → car.db  车辆信息
+ *    cus_connection → cus.db  车主信息
+ *    ser_connection → ser.db  进店服务信息
+ *    ware_connection → ware.db 备件信息
+ *
+ *  使用方式：
+ *    basedataapi::getInstance().init();        // 程序启动时初始化
+ *    basedataapi::getInstance().saveCar(...);  // 增删查改
+ * ============================================================
+ */
 
 class basedataapi
 {
 private:
-    QVector<QVector<QStringList>*> *inquire_list;
-    const QString m_rootPath="D:/Sysdata";
-    static basedataapi instance;
-    basedataapi();
-    ~basedataapi();
-    static bool created;
-    int Per;
+    QVector<QVector<QStringList>*> *inquire_list;   // 查询结果指针列表（析构时自动清理）
+    const QString m_rootPath = "D:/Sysdata";         // 数据根目录
+    static basedataapi instance;                     // 单例对象
+    basedataapi();                                   // 私有构造（单例模式）
+    ~basedataapi();                                  // 析构时清理 inquire_list
+
 public:
-/*-------------------以下为功能函数，拿来给你调用的，前面的别动，也用不到-----------------*/
-    int getPermission();
-    void init();
-              //在主函数创建application之后运行
-    static basedataapi& getInstance();
-              //懒汉单例
+    /* ==================== 基础方法 ==================== */
+    static basedataapi& getInstance();   // 获取单例
+    QString getRootPath();               // 返回根目录路径 "D:/Sysdata"
+    void init();                         // 初始化四个数据库连接并建表
 
-    QString getRootPath();
-              //返回"D:/Sysdata"
+    /* ============================================================
+     *  车辆信息 — car.db（表名 vehicles）
+     *  字段：license_plate(车牌号) / vin(车架号) / engine_number(发动机号)
+     *        purchase_date(购车日期) / inspection_date(年审日期) / insurance_date(保险日期)
+     *  主键：license_plate
+     * ============================================================ */
+    bool saveCar(const QString& license_plate, const QString& vin,
+                 const QString& engine_number, const QString& purchase_date,
+                 const QString& inspection_date, const QString& insurance_date);
+    bool deleteCar(const QString& license_plate);
+    QVector<QStringList>* inquireCar(int model, const QString& value);  // model: 1=车牌号, 2=车架号, 3=发动机号
+    QVector<QStringList>* inquireCar();                                  // 查询所有车辆
+    bool updateCar(const QString& old_license_plate,
+                   const QString& license_plate, const QString& vin,
+                   const QString& engine_number, const QString& purchase_date,
+                   const QString& inspection_date, const QString& insurance_date);
 
-    void setPermission(int sta);
-              //设置权限，0为defaul，啥都不能干
-              //1能查询数据
-              //2还能保存数据
-              //3还能更新和删除数据
+    /* ============================================================
+     *  车主信息 — cus.db（表名 customers）
+     *  字段：id(自增主键) / owner_name(车主姓名) / owner_phone(车主电话)
+     *        driver_name(驾驶员姓名) / driver_phone(驾驶员电话)
+     * ============================================================ */
+    bool saveCus(const QString& owner_name, const QString& owner_phone,
+                 const QString& driver_name, const QString& driver_phone);
+    bool deleteCus(int id);
+    QVector<QStringList>* inquireCus(int model, const QString& value);  // model: 1=车主姓名, 2=车主电话, 3=驾驶员姓名, 4=驾驶员电话
+    QVector<QStringList>* inquireCus();                                  // 查询所有车主
+    bool updateCus(int id,
+                   const QString& owner_name, const QString& owner_phone,
+                   const QString& driver_name, const QString& driver_phone);
 
-    bool save(const QString& name, const QString& depart,
-              const QString& id, const QString& photo ,const QString& chara);
-              //保存信息没什么好说的，photo传绝对路径，要带文件名
+    /* ============================================================
+     *  进店服务信息 — ser.db（表名 services）
+     *  字段：id(自增主键) / repair_person(维修责任人) / repair_content(报修内容)
+     *        mileage(公里数) / labor_cost(工时费)
+     * ============================================================ */
+    bool saveSer(const QString& repair_person, const QString& repair_content,
+                 int mileage, double labor_cost);
+    bool deleteSer(int id);
+    QVector<QStringList>* inquireSer(int model, const QString& value);  // model: 1=ID, 2=维修责任人
+    QVector<QStringList>* inquireSer();                                  // 查询所有服务记录
+    bool updateSer(int id,
+                   const QString& repair_person, const QString& repair_content,
+                   int mileage, double labor_cost);
 
-    bool deleteContent(const QString& id);
-              //考虑到其他要素都有可能重复，所以只提供id删除工具，图片和数据库一并删除
+    /* ============================================================
+     *  备件信息 — ware.db（表名 parts）
+     *  字段：part_id(备件编号) / name(名称) / quantity(数量)
+     *        price(金额) / supplier(供货商) / warranty_period(质保期)
+     *  主键：part_id
+     * ============================================================ */
+    bool saveWare(const QString& part_id, const QString& name,
+                  int quantity, double price,
+                  const QString& supplier, const QString& warranty_period);
+    bool deleteWare(const QString& part_id);
+    QVector<QStringList>* inquireWare(int model, const QString& value); // model: 1=备件编号, 2=名称
+    QVector<QStringList>* inquireWare();                                 // 查询所有备件
+    bool updateWare(const QString& old_part_id,
+                    const QString& part_id, const QString& name,
+                    int quantity, double price,
+                    const QString& supplier, const QString& warranty_period);
 
-    QVector<QStringList>* inquireContent(const int model,const QString& cloum);
-              //model:1->name,2->depart,3->id，使用完毕不需要手动delete了嘿嘿，没有符合要求会返回空vector
-    QVector<QStringList>* inquireContent();
-              //重载，返回所有参数
-
-    bool update(const QString& preid,const QString& name, const QString& depart,
-                const QString& id, const QString& photoo ,const QString& chara);
-              //更新功能，参数列表和save一模一样，功能是将preid的人信息全面改为当前信息，也需要保证cathe里面有相应的新图片
-
-    bool writeInfo(QString di);
-              //日志，记录修改,包括修改时间（自动读取）和修改内容（参数传递），写入成功返回1否则返回0
-
+    /* ==================== 日志记录 ==================== */
+    bool writeInfo(QString di);   // 记录操作日志到 info.txt
 };
 
 #endif // BASEDATAAPI_H

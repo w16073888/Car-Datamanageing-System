@@ -10,7 +10,6 @@ int main(int argc, char *argv[])
 
     MainWindow window;
     window.show();
-    basedataapi::getInstance().setPermission(3);
     /*---------------------------------test Field---------------------------------------*/
        /* basedataapi::getInstance().save("肖筱天", "技术部", "114", basedataapi::getInstance().getRootPath()+"/cathe/DSC_1746.jpg", basedataapi::getInstance().getRootPath()+"/cathe/tt1.jpg");
         basedataapi::getInstance().save("吴滨涵", "技术部", "514", basedataapi::getInstance().getRootPath()+"/cathe/C5783B0849A021614D62FC991B6C741D.jpg", basedataapi::getInstance().getRootPath()+"/cathe/tt2.jpg");
