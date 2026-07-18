@@ -20,17 +20,17 @@ int main(int argc, char *argv[])
     qDebug() << "\n========== [测试] car.db 车辆信息 ==========";
 
     // 1a. 保存车辆
-    basedataapi::getInstance().saveCar("京A88888", "LSVAB4BRXJN000001",
+    basedataapi::getInstance().saveCar(1, "京A88888", "LSVAB4BRXJN000001",
                                        "EA888-123456", "2024-01-15", "2025-01-15", "2025-01-15");
-    basedataapi::getInstance().saveCar("京B66666", "LFV3A23K5JN000002",
+    basedataapi::getInstance().saveCar(2, "京B66666", "LFV3A23K5JN000002",
                                        "EA211-654321", "2024-03-20", "2025-03-20", "2025-03-20");
 
     // 1b. 查询全部车辆
     QVector<QStringList>* carList = basedataapi::getInstance().inquireCar();
     qDebug() << "[查询] car.db 全部记录 —— 共" << carList->size() << "条";
     for (const QStringList& row : *carList) {
-        qDebug() << "  车牌:" << row[0] << "车架号:" << row[1] << "发动机号:" << row[2]
-                 << "购车:" << row[3] << "年审:" << row[4] << "保险:" << row[5];
+        qDebug() << "  车主号:" << row[0] << "车牌:" << row[1] << "车架号:" << row[2] << "发动机号:" << row[3]
+                 << "购车:" << row[4] << "年审:" << row[5] << "保险:" << row[6];
     }
 
     // 1c. 按车牌号查询
@@ -42,7 +42,8 @@ int main(int argc, char *argv[])
     qDebug() << "[查询] 按车架号 LFV3A23K5JN000002 —— 共" << carByVin->size() << "条";
 
     // 1e. 更新车辆（修改年审和保险日期）
-    basedataapi::getInstance().updateCar("京A88888", "京A88888",
+    basedataapi::getInstance().updateCar("京A88888", 1,
+                                         "京A88888",
                                          "LSVAB4BRXJN000001", "EA888-123456",
                                          "2024-01-15", "2026-01-15", "2026-01-15");
 
@@ -128,33 +129,33 @@ int main(int argc, char *argv[])
     qDebug() << "\n========== [测试] ware.db 备件信息 ==========";
 
     // 4a. 保存备件
-    // saveWare(编号, 名称, 数量, 进货价, 销售价(=进货价*1.4), 供货商, 出库日期, 质保期)
-    basedataapi::getInstance().saveWare("P001", "机油滤清器", 50, 35.0, 49.0,
+    // saveWare(进货号, 备件编号, 名称, 数量, 进货价, 销售价(=进货价*1.4), 供货商, 出库日期, 质保期)
+    basedataapi::getInstance().saveWare("P001", "BP-001", "机油滤清器", 50, 35.0, 49.0,
                                         "博世配件", "2026-07-01", "12个月");
-    basedataapi::getInstance().saveWare("P002", "空气滤清器", 30, 45.0, 63.0,
+    basedataapi::getInstance().saveWare("P002", "BP-002", "空气滤清器", 30, 45.0, 63.0,
                                         "曼牌滤清器", "2026-07-05", "12个月");
-    basedataapi::getInstance().saveWare("P003", "刹车片（前）", 20, 280.0, 392.0,
+    basedataapi::getInstance().saveWare("P003", "BP-003", "刹车片（前）", 20, 280.0, 392.0,
                                         "菲罗多", "2026-07-10", "24个月");
 
     // 4b. 查询全部备件
     QVector<QStringList>* wareList = basedataapi::getInstance().inquireWare();
     qDebug() << "[查询] ware.db 全部记录 —— 共" << wareList->size() << "条";
     for (const QStringList& row : *wareList) {
-        qDebug() << "  编号:" << row[0] << "名称:" << row[1] << "数量:" << row[2]
-                 << "进货价:" << row[3] << "销售价:" << row[4]
-                 << "供货商:" << row[5] << "出库日期:" << row[6] << "质保期:" << row[7];
+        qDebug() << "  进货号:" << row[0] << "备件编号:" << row[1] << "名称:" << row[2] << "数量:" << row[3]
+                 << "进货价:" << row[4] << "销售价:" << row[5]
+                 << "供货商:" << row[6] << "出库日期:" << row[7] << "质保期:" << row[8];
     }
 
     // 4c. 按备件编号查询
     QVector<QStringList>* wareById = basedataapi::getInstance().inquireWare(1, "P001");
-    qDebug() << "[查询] 按备件编号 P001 —— 共" << wareById->size() << "条";
+    qDebug() << "[查询] 按进货号 P001 —— 共" << wareById->size() << "条";
 
     // 4d. 按名称查询
     QVector<QStringList>* wareByName = basedataapi::getInstance().inquireWare(2, "空气滤清器");
     qDebug() << "[查询] 按名称 空气滤清器 —— 共" << wareByName->size() << "条";
 
     // 4e. 更新备件（修改数量和进价）
-    basedataapi::getInstance().updateWare("P001", "P001", "机油滤清器", 100, 32.0, 44.8,
+    basedataapi::getInstance().updateWare("P001", "P001", "BP-001", "机油滤清器", 100, 32.0, 44.8,
                                           "博世配件", "2026-07-15", "12个月");
     qDebug() << "[更新] ware.db P001 数量已改为 100，进价降为 32.0，销售价 44.8";
 

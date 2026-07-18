@@ -4,14 +4,15 @@
 -- 功能：创建备件（配件/零件）库存数据库表，用于存储汽修
 -- 备件的编号、名称、库存数量、进货与销售价格、供货商、
 -- 出库日期、质保期等信息。
--- 运行此文件前需先创建/打开 ware.db 数据库连接。
+-- 运行此文件可以生成数据库 ware.db，每行储存备件信息。
 --
 -- 字段说明：
---   part_id       : 备件编号（主键）
+--   part_id       : 进货号（必填，主键/ID）
+--   part_code     : 备件编号（选填）
 --   name          : 名称（必填）
 --   quantity      : 数量（必填，默认 0）
 --   purchase_price: 进货价（必填，单位：元）
---   sale_price    : 销售价（默认 0，程序计算建议 = 进货价 * 1.4）
+--   sale_price    : 销售价（默认 0，程序计算建议 = 进货价 * 1.4，即 0.4 利润）
 --   supplier      : 供货商（必填）
 --   out_date      : 出库日期（必填，格式建议 YYYY-MM-DD）
 --   warranty_period: 质保期（选填，如"12个月""2年"）
@@ -22,7 +23,8 @@
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS parts (
-    part_id TEXT PRIMARY KEY,                -- 备件编号
+    part_id TEXT PRIMARY KEY,                -- 进货号（必填，主键/ID）
+    part_code TEXT,                          -- 备件编号（选填）
     name TEXT NOT NULL,                      -- 名称（必填）
     quantity INTEGER NOT NULL DEFAULT 0,     -- 数量（必填，默认为 0）
     purchase_price REAL NOT NULL,            -- 进货价（必填）

@@ -47,18 +47,18 @@ public:
 
     /* ============================================================
      *  车辆信息 — car.db（表名 vehicles）
-     *  字段：license_plate(车牌号) / vin(车架号) / engine_number(发动机号)
+     *  字段：customer_id(车主号) / license_plate(车牌号) / vin(车架号) / engine_number(发动机号)
      *        purchase_date(购车日期) / inspection_date(年审日期) / insurance_date(保险日期)
      *  主键：license_plate
      * ============================================================ */
-    bool saveCar(const QString& license_plate, const QString& vin,
+    bool saveCar(int customer_id, const QString& license_plate, const QString& vin,
                  const QString& engine_number, const QString& purchase_date,
                  const QString& inspection_date, const QString& insurance_date);
     bool deleteCar(const QString& license_plate);
     QVector<QStringList>* inquireCar(int model, const QString& value);  // model: 1=车牌号, 2=车架号, 3=发动机号
     QVector<QStringList>* inquireCar();                                  // 查询所有车辆
     bool updateCar(const QString& old_license_plate,
-                   const QString& license_plate, const QString& vin,
+                   int customer_id, const QString& license_plate, const QString& vin,
                    const QString& engine_number, const QString& purchase_date,
                    const QString& inspection_date, const QString& insurance_date);
 
@@ -66,7 +66,7 @@ public:
      *  车主信息 — cus.db（表名 customers）
      *  字段：id(自增主键) / owner_name(车主姓名) / owner_phone(车主电话)
      * ============================================================ */
-    bool saveCus(const QString& owner_name, const QString& owner_phone);
+    int saveCus(const QString& owner_name, const QString& owner_phone);
     bool deleteCus(int id);
     QVector<QStringList>* inquireCus(int model, const QString& value);  // model: 1=车主姓名, 2=车主电话
     QVector<QStringList>* inquireCus();                                  // 查询所有车主
@@ -95,20 +95,20 @@ public:
 
     /* ============================================================
      *  备件信息 — ware.db（表名 parts）
-     *  字段：part_id(备件编号) / name(名称) / quantity(数量)
+     *  字段：part_id(进货号) / part_code(备件编号) / name(名称) / quantity(数量)
      *        purchase_price(进货价) / sale_price(销售价) / supplier(供货商)
      *        out_date(出库日期) / warranty_period(质保期)
      *  主键：part_id
      * ============================================================ */
-    bool saveWare(const QString& part_id, const QString& name,
+    bool saveWare(const QString& part_id, const QString& part_code, const QString& name,
                   int quantity, double purchase_price, double sale_price,
                   const QString& supplier, const QString& out_date,
                   const QString& warranty_period);
     bool deleteWare(const QString& part_id);
-    QVector<QStringList>* inquireWare(int model, const QString& value); // model: 1=备件编号, 2=名称
+    QVector<QStringList>* inquireWare(int model, const QString& value); // model: 1=进货号, 2=名称
     QVector<QStringList>* inquireWare();                                 // 查询所有备件
     bool updateWare(const QString& old_part_id,
-                    const QString& part_id, const QString& name,
+                    const QString& part_id, const QString& part_code, const QString& name,
                     int quantity, double purchase_price, double sale_price,
                     const QString& supplier, const QString& out_date,
                     const QString& warranty_period);
