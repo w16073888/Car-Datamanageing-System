@@ -322,22 +322,18 @@ bool basedataapi::updateCar(const QString& old_license_plate,
 /* ============================================================
  *  车主信息 — cus.db（表名 customers）
  *  字段：id(自增主键) / owner_name(车主姓名) / owner_phone(车主电话)
- *        driver_name(驾驶员姓名) / driver_phone(驾驶员电话)
  * ============================================================ */
 
-bool basedataapi::saveCus(const QString& owner_name, const QString& owner_phone,
-                           const QString& driver_name, const QString& driver_phone)
+bool basedataapi::saveCus(const QString& owner_name, const QString& owner_phone)
 {
     QSqlDatabase db = QSqlDatabase::database("cus_connection");
     QSqlQuery query(db);
     query.prepare(
-        "INSERT INTO customers (owner_name, owner_phone, driver_name, driver_phone) "
-        "VALUES (:on, :op, :dn, :dp)"
+        "INSERT INTO customers (owner_name, owner_phone) "
+        "VALUES (:on, :op)"
     );
     query.bindValue(":on", owner_name);
     query.bindValue(":op", owner_phone);
-    query.bindValue(":dn", driver_name);
-    query.bindValue(":dp", driver_phone);
 
     if (!query.exec()) {
         qDebug() << "[saveCus] 插入失败：" << query.lastError().text();
@@ -367,26 +363,18 @@ QVector<QStringList>* basedataapi::inquireCus(int model, const QString& value)
     QSqlDatabase db = QSqlDatabase::database("cus_connection");
     QSqlQuery query(db);
 
-    // model: 1=车主姓名, 2=车主电话, 3=驾驶员姓名, 4=驾驶员电话
+    // model: 1=车主姓名, 2=车主电话
     switch (model) {
     case 1:
-        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE owner_name = :v");
+        query.prepare("SELECT id, owner_name, owner_phone FROM customers WHERE owner_name = :v");
         query.bindValue(":v", value);
         break;
     case 2:
-        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE owner_phone = :v");
-        query.bindValue(":v", value);
-        break;
-    case 3:
-        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE driver_name = :v");
-        query.bindValue(":v", value);
-        break;
-    case 4:
-        query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers WHERE driver_phone = :v");
+        query.prepare("SELECT id, owner_name, owner_phone FROM customers WHERE owner_phone = :v");
         query.bindValue(":v", value);
         break;
     default:
-        qDebug() << "[inquireCus] 无效查询模式：" << model << "（1=车主姓名, 2=车主电话, 3=驾驶员姓名, 4=驾驶员电话）";
+        qDebug() << "[inquireCus] 无效查询模式：" << model << "（1=车主姓名, 2=车主电话）";
         return nullptr;
     }
 
@@ -400,9 +388,7 @@ QVector<QStringList>* basedataapi::inquireCus(int model, const QString& value)
         QStringList row;
         row << query.value(0).toString()  // id
             << query.value(1).toString()  // owner_name
-            << query.value(2).toString()  // owner_phone
-            << query.value(3).toString()  // driver_name
-            << query.value(4).toString(); // driver_phone
+            << query.value(2).toString(); // owner_phone
         result->append(row);
     }
     inquire_list->append(result);
@@ -413,7 +399,7 @@ QVector<QStringList>* basedataapi::inquireCus()
 {
     QSqlDatabase db = QSqlDatabase::database("cus_connection");
     QSqlQuery query(db);
-    query.prepare("SELECT id, owner_name, owner_phone, driver_name, driver_phone FROM customers");
+    query.prepare("SELECT id, owner_name, owner_phone FROM customers");
 
     QVector<QStringList>* result = new QVector<QStringList>;
     if (!query.exec()) {
@@ -423,11 +409,9 @@ QVector<QStringList>* basedataapi::inquireCus()
     }
     while (query.next()) {
         QStringList row;
-        row << query.value(0).toString()
-            << query.value(1).toString()
-            << query.value(2).toString()
-            << query.value(3).toString()
-            << query.value(4).toString();
+        row << query.value(0).toString()  // id
+            << query.value(1).toString()  // owner_name
+            << query.value(2).toString(); // owner_phone
         result->append(row);
     }
     inquire_list->append(result);
@@ -435,20 +419,16 @@ QVector<QStringList>* basedataapi::inquireCus()
 }
 
 bool basedataapi::updateCus(int id,
-                             const QString& owner_name, const QString& owner_phone,
-                             const QString& driver_name, const QString& driver_phone)
+                             const QString& owner_name, const QString& owner_phone)
 {
     QSqlDatabase db = QSqlDatabase::database("cus_connection");
     QSqlQuery query(db);
     query.prepare(
-        "UPDATE customers SET owner_name=:on, owner_phone=:op, "
-        "driver_name=:dn, driver_phone=:dp WHERE id=:id"
+        "UPDATE customers SET owner_name=:on, owner_phone=:op WHERE id=:id"
     );
     query.bindValue(":id", id);
     query.bindValue(":on", owner_name);
     query.bindValue(":op", owner_phone);
-    query.bindValue(":dn", driver_name);
-    query.bindValue(":dp", driver_phone);
 
     if (!query.exec()) {
         qDebug() << "[updateCus] 更新失败：" << query.lastError().text();
@@ -463,21 +443,30 @@ bool basedataapi::updateCus(int id,
  *  进店服务信息 — ser.db（表名 services）
  *  字段：id(自增主键) / repair_person(维修责任人) / repair_content(报修内容)
  *        mileage(公里数) / labor_cost(工时费)
+ *        driver_name(驾驶员姓名) / driver_phone(驾驶员电话)
+ *        is_settled(是否结算) / report_time(报修时间)
  * ============================================================ */
 
 bool basedataapi::saveSer(const QString& repair_person, const QString& repair_content,
-                           int mileage, double labor_cost)
+                           int mileage, double labor_cost,
+                           const QString& driver_name, const QString& driver_phone,
+                           int is_settled, const QString& report_time)
 {
     QSqlDatabase db = QSqlDatabase::database("ser_connection");
     QSqlQuery query(db);
     query.prepare(
-        "INSERT INTO services (repair_person, repair_content, mileage, labor_cost) "
-        "VALUES (:rp, :rc, :mi, :lc)"
+        "INSERT INTO services (repair_person, repair_content, mileage, labor_cost, "
+        "driver_name, driver_phone, is_settled, report_time) "
+        "VALUES (:rp, :rc, :mi, :lc, :dn, :dp, :is, :rt)"
     );
     query.bindValue(":rp", repair_person);
     query.bindValue(":rc", repair_content);
     query.bindValue(":mi", mileage);
     query.bindValue(":lc", labor_cost);
+    query.bindValue(":dn", driver_name);
+    query.bindValue(":dp", driver_phone);
+    query.bindValue(":is", is_settled);
+    query.bindValue(":rt", report_time);
 
     if (!query.exec()) {
         qDebug() << "[saveSer] 插入失败：" << query.lastError().text();
@@ -510,11 +499,13 @@ QVector<QStringList>* basedataapi::inquireSer(int model, const QString& value)
     // model: 1=ID, 2=维修责任人
     switch (model) {
     case 1:
-        query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost FROM services WHERE id = :v");
+        query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost, "
+                      "driver_name, driver_phone, is_settled, report_time FROM services WHERE id = :v");
         query.bindValue(":v", value.toInt());
         break;
     case 2:
-        query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost FROM services WHERE repair_person = :v");
+        query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost, "
+                      "driver_name, driver_phone, is_settled, report_time FROM services WHERE repair_person = :v");
         query.bindValue(":v", value);
         break;
     default:
@@ -534,7 +525,11 @@ QVector<QStringList>* basedataapi::inquireSer(int model, const QString& value)
             << query.value(1).toString()  // repair_person
             << query.value(2).toString()  // repair_content
             << query.value(3).toString()  // mileage
-            << query.value(4).toString(); // labor_cost
+            << query.value(4).toString()  // labor_cost
+            << query.value(5).toString()  // driver_name
+            << query.value(6).toString()  // driver_phone
+            << query.value(7).toString()  // is_settled
+            << query.value(8).toString(); // report_time
         result->append(row);
     }
     inquire_list->append(result);
@@ -545,7 +540,8 @@ QVector<QStringList>* basedataapi::inquireSer()
 {
     QSqlDatabase db = QSqlDatabase::database("ser_connection");
     QSqlQuery query(db);
-    query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost FROM services");
+    query.prepare("SELECT id, repair_person, repair_content, mileage, labor_cost, "
+                  "driver_name, driver_phone, is_settled, report_time FROM services");
 
     QVector<QStringList>* result = new QVector<QStringList>;
     if (!query.exec()) {
@@ -555,11 +551,15 @@ QVector<QStringList>* basedataapi::inquireSer()
     }
     while (query.next()) {
         QStringList row;
-        row << query.value(0).toString()
-            << query.value(1).toString()
-            << query.value(2).toString()
-            << query.value(3).toString()
-            << query.value(4).toString();
+        row << query.value(0).toString()  // id
+            << query.value(1).toString()  // repair_person
+            << query.value(2).toString()  // repair_content
+            << query.value(3).toString()  // mileage
+            << query.value(4).toString()  // labor_cost
+            << query.value(5).toString()  // driver_name
+            << query.value(6).toString()  // driver_phone
+            << query.value(7).toString()  // is_settled
+            << query.value(8).toString(); // report_time
         result->append(row);
     }
     inquire_list->append(result);
@@ -568,19 +568,26 @@ QVector<QStringList>* basedataapi::inquireSer()
 
 bool basedataapi::updateSer(int id,
                              const QString& repair_person, const QString& repair_content,
-                             int mileage, double labor_cost)
+                             int mileage, double labor_cost,
+                             const QString& driver_name, const QString& driver_phone,
+                             int is_settled, const QString& report_time)
 {
     QSqlDatabase db = QSqlDatabase::database("ser_connection");
     QSqlQuery query(db);
     query.prepare(
         "UPDATE services SET repair_person=:rp, repair_content=:rc, "
-        "mileage=:mi, labor_cost=:lc WHERE id=:id"
+        "mileage=:mi, labor_cost=:lc, driver_name=:dn, driver_phone=:dp, "
+        "is_settled=:is, report_time=:rt WHERE id=:id"
     );
     query.bindValue(":id", id);
     query.bindValue(":rp", repair_person);
     query.bindValue(":rc", repair_content);
     query.bindValue(":mi", mileage);
     query.bindValue(":lc", labor_cost);
+    query.bindValue(":dn", driver_name);
+    query.bindValue(":dp", driver_phone);
+    query.bindValue(":is", is_settled);
+    query.bindValue(":rt", report_time);
 
     if (!query.exec()) {
         qDebug() << "[updateSer] 更新失败：" << query.lastError().text();
@@ -594,25 +601,30 @@ bool basedataapi::updateSer(int id,
 /* ============================================================
  *  备件信息 — ware.db（表名 parts）
  *  字段：part_id(备件编号) / name(名称) / quantity(数量)
- *        price(金额) / supplier(供货商) / warranty_period(质保期)
+ *        purchase_price(进货价) / sale_price(销售价) / supplier(供货商)
+ *        out_date(出库日期) / warranty_period(质保期)
  *  主键：part_id
  * ============================================================ */
 
 bool basedataapi::saveWare(const QString& part_id, const QString& name,
-                            int quantity, double price,
-                            const QString& supplier, const QString& warranty_period)
+                            int quantity, double purchase_price, double sale_price,
+                            const QString& supplier, const QString& out_date,
+                            const QString& warranty_period)
 {
     QSqlDatabase db = QSqlDatabase::database("ware_connection");
     QSqlQuery query(db);
     query.prepare(
-        "INSERT INTO parts (part_id, name, quantity, price, supplier, warranty_period) "
-        "VALUES (:pid, :nm, :qt, :pr, :su, :wp)"
+        "INSERT INTO parts (part_id, name, quantity, purchase_price, sale_price, "
+        "supplier, out_date, warranty_period) "
+        "VALUES (:pid, :nm, :qt, :pp, :sp, :su, :od, :wp)"
     );
     query.bindValue(":pid", part_id);
     query.bindValue(":nm", name);
     query.bindValue(":qt", quantity);
-    query.bindValue(":pr", price);
+    query.bindValue(":pp", purchase_price);
+    query.bindValue(":sp", sale_price);
     query.bindValue(":su", supplier);
+    query.bindValue(":od", out_date);
     query.bindValue(":wp", warranty_period);
 
     if (!query.exec()) {
@@ -646,11 +658,13 @@ QVector<QStringList>* basedataapi::inquireWare(int model, const QString& value)
     // model: 1=备件编号, 2=名称
     switch (model) {
     case 1:
-        query.prepare("SELECT part_id, name, quantity, price, supplier, warranty_period FROM parts WHERE part_id = :v");
+        query.prepare("SELECT part_id, name, quantity, purchase_price, sale_price, "
+                      "supplier, out_date, warranty_period FROM parts WHERE part_id = :v");
         query.bindValue(":v", value);
         break;
     case 2:
-        query.prepare("SELECT part_id, name, quantity, price, supplier, warranty_period FROM parts WHERE name = :v");
+        query.prepare("SELECT part_id, name, quantity, purchase_price, sale_price, "
+                      "supplier, out_date, warranty_period FROM parts WHERE name = :v");
         query.bindValue(":v", value);
         break;
     default:
@@ -669,9 +683,11 @@ QVector<QStringList>* basedataapi::inquireWare(int model, const QString& value)
         row << query.value(0).toString()  // part_id
             << query.value(1).toString()  // name
             << query.value(2).toString()  // quantity（int 转为 QString）
-            << query.value(3).toString()  // price（double 转为 QString）
-            << query.value(4).toString()  // supplier
-            << query.value(5).toString(); // warranty_period
+            << query.value(3).toString()  // purchase_price（double 转为 QString）
+            << query.value(4).toString()  // sale_price（double 转为 QString）
+            << query.value(5).toString()  // supplier
+            << query.value(6).toString()  // out_date
+            << query.value(7).toString(); // warranty_period
         result->append(row);
     }
     inquire_list->append(result);
@@ -682,7 +698,8 @@ QVector<QStringList>* basedataapi::inquireWare()
 {
     QSqlDatabase db = QSqlDatabase::database("ware_connection");
     QSqlQuery query(db);
-    query.prepare("SELECT part_id, name, quantity, price, supplier, warranty_period FROM parts");
+    query.prepare("SELECT part_id, name, quantity, purchase_price, sale_price, "
+                  "supplier, out_date, warranty_period FROM parts");
 
     QVector<QStringList>* result = new QVector<QStringList>;
     if (!query.exec()) {
@@ -692,12 +709,14 @@ QVector<QStringList>* basedataapi::inquireWare()
     }
     while (query.next()) {
         QStringList row;
-        row << query.value(0).toString()
-            << query.value(1).toString()
-            << query.value(2).toString()
-            << query.value(3).toString()
-            << query.value(4).toString()
-            << query.value(5).toString();
+        row << query.value(0).toString()  // part_id
+            << query.value(1).toString()  // name
+            << query.value(2).toString()  // quantity
+            << query.value(3).toString()  // purchase_price
+            << query.value(4).toString()  // sale_price
+            << query.value(5).toString()  // supplier
+            << query.value(6).toString()  // out_date
+            << query.value(7).toString(); // warranty_period
         result->append(row);
     }
     inquire_list->append(result);
@@ -706,21 +725,25 @@ QVector<QStringList>* basedataapi::inquireWare()
 
 bool basedataapi::updateWare(const QString& old_part_id,
                               const QString& part_id, const QString& name,
-                              int quantity, double price,
-                              const QString& supplier, const QString& warranty_period)
+                              int quantity, double purchase_price, double sale_price,
+                              const QString& supplier, const QString& out_date,
+                              const QString& warranty_period)
 {
     QSqlDatabase db = QSqlDatabase::database("ware_connection");
     QSqlQuery query(db);
     query.prepare(
-        "UPDATE parts SET part_id=:pid, name=:nm, quantity=:qt, price=:pr, "
-        "supplier=:su, warranty_period=:wp WHERE part_id=:old_pid"
+        "UPDATE parts SET part_id=:pid, name=:nm, quantity=:qt, "
+        "purchase_price=:pp, sale_price=:sp, supplier=:su, "
+        "out_date=:od, warranty_period=:wp WHERE part_id=:old_pid"
     );
     query.bindValue(":old_pid", old_part_id);
     query.bindValue(":pid", part_id);
     query.bindValue(":nm", name);
     query.bindValue(":qt", quantity);
-    query.bindValue(":pr", price);
+    query.bindValue(":pp", purchase_price);
+    query.bindValue(":sp", sale_price);
     query.bindValue(":su", supplier);
+    query.bindValue(":od", out_date);
     query.bindValue(":wp", warranty_period);
 
     if (!query.exec()) {
