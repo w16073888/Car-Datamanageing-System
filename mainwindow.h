@@ -1,118 +1,134 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <QIcon>
-#include <QLabel>
-#include <QLineEdit>
-#include <QTextEdit>
-#include <QDateEdit>
-#include <QScrollArea>
-#include <QFrame>
-#include <QPixmap>
 #include <QMainWindow>
-#include <QPushButton>
-#include <QGridLayout>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
 #include <QStackedWidget>
-#include <QPropertyAnimation>
-#include <QGraphicsOpacityEffect>
-#include <QMessageBox>
-#include <QStringList>
-#include "basedataapi.h"
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QCloseEvent>
 
-namespace Ui {
-class MainWindow;
-}
+#include "pages/EmployeePage.h"
+#include "pages/DataManagerPage.h"
+#include "pages/VehiclePage.h"
+#include "pages/VehicleQueryPage.h"
+#include "pages/WorkOrderPage.h"
+#include "pages/QuotePage.h"
+#include "pages/PurchasePage.h"
+#include "pages/InventoryOutPage.h"
+#include "pages/PartsReturnPage.h"
+#include "pages/PurchaseReturnPage.h"
+#include "pages/StockQueryPage.h"
+#include "pages/SettlementPage.h"
+#include "pages/SettlementQueryPage.h"
+#include "pages/FinancePage.h"
+#include "pages/ServiceReminderPage.h"
+#include "pages/CustomerVisitPage.h"
+#include "pages/ExportPage.h"
+#include "pages/BusinessReportPage.h"
+#include "pages/InboundReportPage.h"
+#include "pages/OutboundReportPage.h"
+#include "pages/DashboardPage.h"
+#include "pages/ChangePasswordPage.h"
 
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = 0);
-    void setState(int n);   // 切换到指定页面（state 编号）
+    explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-private slots:
-    /* 检索界面（state=1）的输入变化处理 —— 查库、显示结果/跳转 */
-    void onSearchInputChanged();
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private:
-    /* ==================== 基础控件 ==================== */
-    int state;                      // 当前页面状态码
-    Ui::MainWindow *ui;
-    QStackedWidget *book;           // 页面栈容器
-    QPropertyAnimation *fadeAnimation;
-    QGraphicsOpacityEffect *opacotyEffect;
+    void setupMenuBar();
+    void setupPages();
+    void applyStyleSheet();
+    void switchToPage(int index);
 
-    /* ==================== 页面与布局 ==================== */
-    // state→page 映射：0→[0], 1→[1], 2→[2], 3→[3], 4→[4], 9→[5], 10→[6]
-    QWidget* page[7];
-    QGridLayout *layout[7];
+    // 页面枚举
+    enum PageIndex {
+        PAGE_EMPLOYEE = 0,
+        PAGE_DATA_MANAGER,
+        PAGE_VEHICLE,
+        PAGE_VEHICLE_QUERY,
+        PAGE_WORK_ORDER,
+        PAGE_QUOTE,
+        PAGE_PURCHASE,
+        PAGE_INVENTORY_OUT,
+        PAGE_PARTS_RETURN,
+        PAGE_PURCHASE_RETURN,
+        PAGE_STOCK_QUERY,
+        PAGE_SETTLEMENT,
+        PAGE_SETTLEMENT_QUERY,
+        PAGE_FINANCE,
+        PAGE_SERVICE_REMINDER,
+        PAGE_CUSTOMER_VISIT,
+        PAGE_EXPORT,
+        PAGE_BUSINESS_REPORT,
+        PAGE_INBOUND_REPORT,
+        PAGE_OUTBOUND_REPORT,
+        PAGE_DASHBOARD,
+        PAGE_CHANGE_PASSWORD,
+        PAGE_COUNT
+    };
 
-    /* ==================== 页面间传递的数据缓存 ==================== */
-    // 从 state=1 检索输入中保存的车牌号（用于预填充 state=2）
-    QString m_searchPlate;
+    QStackedWidget *m_stack;
 
-    // 当前选中的车辆/车主信息（用于在 state=3 显示）
-    QString m_selectedPlate;
-    QString m_selectedVin;
-    QString m_selectedOwnerName;
-    QString m_selectedOwnerPhone;
+    // 所有页面
+    QWidget *m_pages[PAGE_COUNT];
 
-    /* ==================== State 0 — 主界面 ==================== */
-    QPushButton *btnToRepair;       // 保修 → state=1
-    QPushButton *btnToWarehouse;    // 库房管理 → state=4
-    QPushButton *btnToSettle;       // 结算 → state=9
-    QPushButton *btnToQuery;        // 查询 → state=10
-    QTextEdit  *textMainHint;       // 右侧提示文本区域（只读）
+    // 菜单栏
+    QMenuBar *m_menuBar;
 
-    /* ==================== State 1 — 保修检索界面 ==================== */
-    QLineEdit  *editSearchPlate;        // 车牌号输入
-    QScrollArea *scrollSearchResult;    // 右侧结果滚动区
-    QWidget    *widgetSearchResult;     // 结果容器
-    QVBoxLayout *layoutSearchResult;    // 结果垂直布局
-    QVector<QWidget*> m_resultRows;     // 动态生成的"确定"按钮行，方便清理
+    // 系统维护
+    QMenu *m_menuSystem;
+    QAction *m_actEmployee;
+    QAction *m_actDataManager;
+    QAction *m_actChangePwd;
+    QAction *m_actLogout;
 
-    /* ==================== State 2 — 车辆首次入库登记界面 ==================== */
-    QLineEdit  *editRegPlate;           // 车牌号（必填）
-    QLineEdit  *editRegVin;             // 车架号（VIN，选填）
-    QLineEdit  *editRegEngine;          // 发动机号（选填）
-    QDateEdit  *dateRegPurchase;        // 购车日期（选填）
-    QDateEdit  *dateRegInsurance;       // 保险日期（选填）
-    QLineEdit  *editRegOwnerName;       // 车主姓名（选填）
-    QLineEdit  *editRegOwnerPhone;      // 车主电话（选填）
-    QPushButton *btnRegCancel;          // 取消（返回 state=0）
-    QPushButton *btnRegSave;            // 保存（存库后跳转 state=3）
+    // 业务报修
+    QMenu *m_menuRepair;
+    QAction *m_actVehicleReg;
+    QAction *m_actVehicleQuery;
+    QAction *m_actWorkOrder;
+    QAction *m_actQuote;
 
-    /* ==================== State 3 — 报修界面 ==================== */
-    QTextEdit  *textRepairInfo;         // 右侧显示车辆/车主信息
-    QLineEdit  *editRepairPerson;       // 维修责任人
-    QLineEdit  *editRepairContent;      // 报修内容
-    QLineEdit  *editRepairMileage;      // 行驶公里数
-    QLineEdit  *editRepairCost;         // 工时费
-    QLineEdit  *editRepairDriverName;   // 驾驶员姓名
-    QLineEdit  *editRepairDriverPhone;  // 驾驶员电话
-    QPushButton *btnRepairSave;         // 保存（存 ser.db → state=0）
-    QPushButton *btnRepairCancel;       // 取消（确认弹窗 → state=0）
+    // 库房管理
+    QMenu *m_menuWarehouse;
+    QAction *m_actPurchase;
+    QAction *m_actInventoryOut;
+    QAction *m_actPartsReturn;
+    QAction *m_actPurchaseReturn;
+    QAction *m_actStockQuery;
 
-    /* ==================== State 4 — 库房管理（占位） ==================== */
-    QLabel *lblWarehousePlaceholder;
+    // 结算管理
+    QMenu *m_menuSettlement;
+    QAction *m_actSettlement;
+    QAction *m_actSettlementQuery;
 
-    /* ==================== State 9 — 结算（占位） ==================== */
-    QLabel *lblSettlePlaceholder;
+    // 财务管理
+    QMenu *m_menuFinance;
+    QAction *m_actFinance;
 
-    /* ==================== State 10 — 查询（占位） ==================== */
-    QLabel *lblQueryPlaceholder;
+    // 服务跟踪
+    QMenu *m_menuService;
+    QAction *m_actServiceReminder;
+    QAction *m_actCustomerVisit;
+    QAction *m_actExport;
 
-    /* ==================== 工具方法 ==================== */
-    int stateToPageIndex(int n);            // state 编号 → page[] 索引
-    void clearSearchResults();              // 清除检索结果列表中的动态控件
-    void doSearch();                        // 执行检索（被 onSearchInputChanged 调用）
+    // 报表查询
+    QMenu *m_menuReport;
+    QAction *m_actBusinessReport;
+    QAction *m_actInboundReport;
+    QAction *m_actOutboundReport;
+    QAction *m_actDashboard;
 
-    /* 日期选择控件的"未设置"标记值 */
-    static const QDate UNSET_DATE;
+    // 状态栏
+    QLabel *m_statusLabel;
 };
 
 #endif // MAINWINDOW_H
