@@ -195,8 +195,8 @@ void SettlementPage::onLoadOrder()
     m_lblTotal->setText(QString("总计：¥%1").arg(displayTotal, 0, 'f', 2));
 
     // 根据状态启用按钮
-    // Stage 3 流程: 已完工 → 通知库房 → 库房提单(已提单) → 结算
-    if (status == "已完工") {
+    // 流程: 已派工/维修中 → 通知库房 → 库房提单(已提单) → 结算
+    if (status == "已派工" || status == "维修中") {
         m_btnNotifyWH->setEnabled(true);
         m_btnSettle->setEnabled(false);
     } else if (status == "已提单") {
@@ -206,16 +206,11 @@ void SettlementPage::onLoadOrder()
         m_btnNotifyWH->setEnabled(false);
         m_btnSettle->setEnabled(false);
         QMessageBox::information(this, "提示", "该工单已结算");
-    } else if (status == "维修中") {
-        m_btnNotifyWH->setEnabled(false);
-        m_btnSettle->setEnabled(false);
-        QMessageBox::warning(this, "状态错误",
-            QString("当前为「%1」，需要「已完工」才能通知库房").arg(status));
     } else {
         m_btnNotifyWH->setEnabled(false);
         m_btnSettle->setEnabled(false);
         QMessageBox::warning(this, "状态错误",
-            QString("当前状态为「%1」，需要「已完工」才能进行结算流程").arg(status));
+            QString("当前状态为「%1」，需要「已派工」或「维修中」才能进行结算流程").arg(status));
     }
 }
 
@@ -232,12 +227,8 @@ void SettlementPage::onNotifyWarehouse()
             QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
         return;
 
-    QSqlQuery q(DbManager::instance().database());
-    q.prepare("UPDATE t_workorder SET status = '已完工' WHERE id = :id AND status = '已完工'");
-    // 注意：实际上前台通知库房后，状态不需要改变
-    // 库房看到"已完工"状态的工单就可以做提单操作
-    // 所以我们只是记录一个通知动作到系统日志
-    q.bindValue(":id", m_currentOrderId);
+    // 通知库房：记录日志即可，状态不改变
+    // 库房看到"已派工"或"维修中"状态的工单就可以做提单操作
 
     // 记录通知日志
     QSqlQuery logQ(DbManager::instance().database());

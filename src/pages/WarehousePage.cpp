@@ -557,8 +557,8 @@ void WarehousePage::onBillingSearchOrder()
     double matTotal = q3.next() ? q3.value(0).toDouble() : 0;
     m_lblBillingTotal->setText(QString("材料费合计: ¥%1").arg(matTotal, 0, 'f', 2));
 
-    // 只有"已完工"状态的工单才能提单
-    if (status == "已完工") {
+    // 已派工 或 维修中 状态的工单可以提单
+    if (status == "已派工" || status == "维修中") {
         m_btnConfirmBill->setEnabled(true);
     } else if (status == "已提单") {
         m_btnConfirmBill->setEnabled(false);
@@ -569,7 +569,7 @@ void WarehousePage::onBillingSearchOrder()
     } else {
         m_btnConfirmBill->setEnabled(false);
         QMessageBox::warning(this, "状态错误",
-            QString("当前状态为「%1」，需要「已完工」才能提单").arg(status));
+            QString("当前状态为「%1」，需要「已派工」或「维修中」才能提单").arg(status));
     }
 }
 
@@ -595,13 +595,14 @@ void WarehousePage::onCompareAndBill()
     DbManager::instance().beginTransaction();
 
     // 更新工单状态为"已提单"，同时更新材料费
+    // 允许从 已派工 或 维修中 状态提单
     q.prepare("UPDATE t_workorder SET status = '已提单', material_fee = :mat "
-              "WHERE id = :id AND status = '已完工'");
+              "WHERE id = :id AND status IN ('已派工','维修中')");
     q.bindValue(":mat", matTotal);
     q.bindValue(":id", m_billingOrderId);
     if (!DbManager::instance().executeQuery(q) || q.numRowsAffected() == 0) {
         DbManager::instance().rollbackTransaction();
-        QMessageBox::warning(this, "提单失败", "状态更新失败，请确认工单状态为「已完工」");
+        QMessageBox::warning(this, "提单失败", "状态更新失败，请确认工单状态为「已派工」或「维修中」");
         return;
     }
 
@@ -628,7 +629,12 @@ void WarehousePage::onCompareAndBill()
         QString("工单材料审核已通过，已设置为「已提单」状态\n材料费合计: ¥%1\n前台可进行结算操作")
         .arg(matTotal, 0, 'f', 2));
     m_btnConfirmBill->setEnabled(false);
-    m_lblBillingInfo->setText(m_lblBillingInfo->text().replace("已完工", "已提单"));
+    // 更新显示文本中的状态
+    {
+        QString txt = m_lblBillingInfo->text();
+        txt.replace("已派工", "已提单").replace("维修中", "已提单");
+        m_lblBillingInfo->setText(txt);
+    }
 }
 
 // ============================================================

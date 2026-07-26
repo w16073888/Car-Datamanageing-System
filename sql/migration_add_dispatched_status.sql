@@ -16,7 +16,7 @@ WHERE TABLE_SCHEMA = 'garagedb'
 -- 追加 '已派工' 到 ENUM
 ALTER TABLE t_workorder
     MODIFY COLUMN status
-        ENUM('待派工','已派工','维修中','已完工','已提单','已结算')
+        ENUM('待派工','已派工','维修中','已提单','已结算')
         DEFAULT '待派工'
         COMMENT '工单状态';
 

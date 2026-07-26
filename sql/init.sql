@@ -130,7 +130,7 @@ CREATE TABLE t_workorder (
     main_technician VARCHAR(50)                                COMMENT '主修人姓名(冗余)',
     repair_date     DATE                                       COMMENT '报修日期',
     estimated_date  DATE                                       COMMENT '预估完工日期',
-    status          ENUM('待派工','已派工','维修中','已完工','已提单','已结算')
+    status          ENUM('待派工','已派工','维修中','已提单','已结算')
                                     DEFAULT '待派工'            COMMENT '工单状态',
     created_by      INT                                        COMMENT '创建人(员工ID)',
     created_at      DATETIME        DEFAULT CURRENT_TIMESTAMP   COMMENT '创建时间',

@@ -40,24 +40,35 @@ int main(int argc, char *argv[])
     {
         QSqlQuery mq(DbManager::instance().database());
 
-        // 迁移: 将 '已派工' 加入 t_workorder.status ENUM
+        // 迁移: 更新 t_workorder.status ENUM
+        //   - 移除 '已完工' 状态（流程简化: 已派工→库房直接提单→已结算）
+        //   - 将已有的 '已完工' 记录迁移为 '维修中'
         mq.exec("SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
                 "WHERE TABLE_SCHEMA='garagedb' AND TABLE_NAME='t_workorder' AND COLUMN_NAME='status'");
         if (mq.next()) {
             QString curType = mq.value(0).toString();
             qDebug() << "[main] 当前 t_workorder.status 列类型:" << curType;
-            if (!curType.contains("已派工")) {
-                qDebug() << "[main] 正在将 '已派工' 加入 status ENUM...";
+            bool hasDispatched = curType.contains("已派工");
+            bool hasFinished   = curType.contains("已完工");
+
+            if (!hasDispatched || hasFinished) {
+                // 目标 ENUM: 待派工,已派工,维修中,已提单,已结算 (无 已完工)
+                if (hasFinished) {
+                    qDebug() << "[main] 将 '已完工' 记录迁移为 '维修中'...";
+                    QSqlQuery upd(DbManager::instance().database());
+                    upd.exec("UPDATE t_workorder SET status='维修中' WHERE status='已完工'");
+                }
+                qDebug() << "[main] 更新 status ENUM 定义...";
                 QSqlQuery alt(DbManager::instance().database());
                 if (alt.exec("ALTER TABLE t_workorder MODIFY COLUMN status "
-                             "ENUM('待派工','已派工','维修中','已完工','已提单','已结算') "
+                             "ENUM('待派工','已派工','维修中','已提单','已结算') "
                              "DEFAULT '待派工' COMMENT '工单状态'")) {
-                    qDebug() << "[main] ALTER TABLE 成功: 已添加 '已派工' 状态";
+                    qDebug() << "[main] status ENUM 更新成功";
                 } else {
                     qWarning() << "[main] ALTER TABLE 失败:" << alt.lastError().text();
                 }
             } else {
-                qDebug() << "[main] status ENUM 已包含 '已派工', 无需迁移";
+                qDebug() << "[main] status ENUM 已是最新, 无需迁移";
             }
         }
 

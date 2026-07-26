@@ -7,6 +7,9 @@
 #include <QMessageBox>
 #include <QSqlError>
 #include <QSqlRecord>
+#include <QClipboard>
+#include <QApplication>
+#include <QKeyEvent>
 
 DataManagerPage::DataManagerPage(QWidget *parent)
     : QWidget(parent)
@@ -65,13 +68,14 @@ void DataManagerPage::setupUI()
     mainLayout->addLayout(tableSelectLayout);
 
     // 提示
-    m_hintLabel = new QLabel("双击单元格可编辑内容，编辑后自动保存到数据库");
+    m_hintLabel = new QLabel("单击选单元格, Shift/Ctrl 多选, Ctrl+C 复制。双击单元格可编辑，编辑后自动保存");
     m_hintLabel->setStyleSheet("color: #7f8c8d; font-size: 13px; padding: 3px;");
     mainLayout->addWidget(m_hintLabel);
 
     // 表格
     m_tableView = new QTableView;
-    m_tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableView->setSelectionBehavior(QAbstractItemView::SelectItems);
+    m_tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableView->setAlternatingRowColors(true);
     m_tableView->horizontalHeader()->setStretchLastSection(true);
     m_tableView->verticalHeader()->setVisible(false);
@@ -84,6 +88,9 @@ void DataManagerPage::setupUI()
     m_model = new QSqlTableModel(this, DbManager::instance().database());
     m_model->setEditStrategy(QSqlTableModel::OnFieldChange);
     m_tableView->setModel(m_model);
+
+    // Ctrl+C 复制选中单元格
+    m_tableView->installEventFilter(this);
 
     // 信号
     connect(m_tableSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -132,14 +139,19 @@ void DataManagerPage::setChineseHeaders()
         m_model->setHeaderData(3, Qt::Horizontal, "发动机号");
         m_model->setHeaderData(4, Qt::Horizontal, "厂家/品牌");
         m_model->setHeaderData(5, Qt::Horizontal, "车型/型号");
-        m_model->setHeaderData(6, Qt::Horizontal, "购车日期");
-        m_model->setHeaderData(7, Qt::Horizontal, "年审日期");
-        m_model->setHeaderData(8, Qt::Horizontal, "保险日期");
-        m_model->setHeaderData(9, Qt::Horizontal, "最后保养日期");
-        m_model->setHeaderData(10, Qt::Horizontal, "保养公里数");
-        m_model->setHeaderData(11, Qt::Horizontal, "最后光顾日期");
-        m_model->setHeaderData(12, Qt::Horizontal, "创建时间");
-        m_model->setHeaderData(13, Qt::Horizontal, "更新时间");
+        m_model->setHeaderData(6, Qt::Horizontal, "颜色");
+        m_model->setHeaderData(7, Qt::Horizontal, "燃油类型");
+        m_model->setHeaderData(8, Qt::Horizontal, "变速箱");
+        m_model->setHeaderData(9, Qt::Horizontal, "地区");
+        m_model->setHeaderData(10, Qt::Horizontal, "当前公里数");
+        m_model->setHeaderData(11, Qt::Horizontal, "购车日期");
+        m_model->setHeaderData(12, Qt::Horizontal, "年审日期");
+        m_model->setHeaderData(13, Qt::Horizontal, "保险日期");
+        m_model->setHeaderData(14, Qt::Horizontal, "最后保养日期");
+        m_model->setHeaderData(15, Qt::Horizontal, "保养公里数");
+        m_model->setHeaderData(16, Qt::Horizontal, "最后光顾日期");
+        m_model->setHeaderData(17, Qt::Horizontal, "创建时间");
+        m_model->setHeaderData(18, Qt::Horizontal, "更新时间");
     }
     // t_customer
     else if (table == "t_customer") {
@@ -147,9 +159,10 @@ void DataManagerPage::setChineseHeaders()
         m_model->setHeaderData(1, Qt::Horizontal, "关联车辆ID");
         m_model->setHeaderData(2, Qt::Horizontal, "姓名");
         m_model->setHeaderData(3, Qt::Horizontal, "电话");
-        m_model->setHeaderData(4, Qt::Horizontal, "类型");
-        m_model->setHeaderData(5, Qt::Horizontal, "创建时间");
-        m_model->setHeaderData(6, Qt::Horizontal, "更新时间");
+        m_model->setHeaderData(4, Qt::Horizontal, "地址");
+        m_model->setHeaderData(5, Qt::Horizontal, "类型");
+        m_model->setHeaderData(6, Qt::Horizontal, "创建时间");
+        m_model->setHeaderData(7, Qt::Horizontal, "更新时间");
     }
     // t_workorder
     else if (table == "t_workorder") {
@@ -313,4 +326,39 @@ void DataManagerPage::refreshData()
 QString DataManagerPage::tableName() const
 {
     return m_tableSelector->currentData().toString();
+}
+
+bool DataManagerPage::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_tableView && event->type() == QEvent::KeyPress) {
+        QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
+        if (keyEvent->matches(QKeySequence::Copy)) {
+            // 收集选中单元格，构造制表符分隔的文本
+            QModelIndexList indexes = m_tableView->selectionModel()->selectedIndexes();
+            if (indexes.isEmpty())
+                return true;
+
+            // 按 (row, column) 排序
+            std::sort(indexes.begin(), indexes.end(),
+                [](const QModelIndex &a, const QModelIndex &b) {
+                    return a.row() < b.row()
+                        || (a.row() == b.row() && a.column() < b.column());
+                });
+
+            QString text;
+            int prevRow = indexes.first().row();
+            for (const QModelIndex &idx : indexes) {
+                if (idx.row() != prevRow)
+                    text += '\n';
+                else if (!text.isEmpty() && text.back() != '\n')
+                    text += '\t';
+                text += idx.data(Qt::DisplayRole).toString();
+                prevRow = idx.row();
+            }
+
+            QApplication::clipboard()->setText(text);
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, event);
 }

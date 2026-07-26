@@ -37,7 +37,7 @@
     "QTextEdit{padding:1px 3px;}"
 
 FrontDeskPage::FrontDeskPage(QWidget *parent)
-    : QWidget(parent), m_lockedVid(0), m_foundVid(0) { setupUI(); }
+    : QWidget(parent), m_lockedVid(0), m_foundVid(0), m_state(STATE_SEARCH) { setupUI(); }
 FrontDeskPage::~FrontDeskPage() {}
 
 void FrontDeskPage::refreshData() { resetForm(); }
@@ -82,8 +82,8 @@ void FrontDeskPage::setupUI()
     auto L = [](const QString &t){ return new QLabel(t); };
 
     // ==================== 1. 车辆搜索（多字段） ====================
-    QGroupBox *g1 = new QGroupBox("车辆查找");
-    QGridLayout *sg = new QGridLayout(g1);
+    m_searchGroup = new QGroupBox("车辆查找");
+    QGridLayout *sg = new QGridLayout(m_searchGroup);
     sg->setContentsMargins(6,4,6,4); sg->setSpacing(3);
     sg->setColumnStretch(1,1); sg->setColumnStretch(3,1); sg->setColumnStretch(5,1);
 
@@ -116,80 +116,94 @@ void FrontDeskPage::setupUI()
 
     QHBoxLayout *btnRow = new QHBoxLayout;
     m_btnLock = new QPushButton("锁定车辆");   m_btnLock->setStyleSheet(S_BTN2H);
-    m_btnUnlock = new QPushButton("解锁");      m_btnUnlock->setStyleSheet(S_BTNGH);
     m_lblStatus = new QLabel("未锁定");
     m_lblStatus->setStyleSheet("color:#e74c3c;font-weight:bold;font-size:13px;");
-    btnRow->addWidget(m_btnLock); btnRow->addWidget(m_btnUnlock);
+    btnRow->addWidget(m_btnLock);
     btnRow->addWidget(m_lblStatus); btnRow->addStretch();
     sg->addLayout(btnRow,2,0,1,6);
 
-    cl->addWidget(g1);
+    cl->addWidget(m_searchGroup);
 
     // ==================== 2. 车辆信息展示（锁定后只读） ====================
     m_infoGroup = new QGroupBox("当前车辆信息");
     m_infoGroup->setVisible(false);
-    QGridLayout *ig = new QGridLayout(m_infoGroup);
-    ig->setContentsMargins(6,4,6,4); ig->setSpacing(3);
-    ig->setColumnStretch(1,1); ig->setColumnStretch(3,1); ig->setColumnStretch(5,1);
+    QVBoxLayout *igOuter = new QVBoxLayout(m_infoGroup);
+    igOuter->setContentsMargins(4,2,4,2); igOuter->setSpacing(2);
 
-    auto mkRO = [](QLabel *&e) {
-        e = new QLabel;
-        e->setStyleSheet("padding:0px; min-height:18px; color:#000000;"
-                         "border:1px solid #dcdde1; border-radius:4px;"
-                         "background:#f0f0f0;");
-        e->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    QString sEdit = "padding:0px;min-height:18px;color:#000000;"
+                    "border:1px solid #dcdde1;border-radius:3px;background:#fff;";
+    auto mkEdit = [&](QLineEdit *&e) {
+        e = new QLineEdit;
+        e->setStyleSheet(sEdit);
     };
-    mkRO(m_dispPlate); mkRO(m_dispVin); mkRO(m_dispEngine); mkRO(m_dispModel);
-    mkRO(m_dispOwner); mkRO(m_dispPhone); mkRO(m_dispAddress);
-    m_dispColor = new QComboBox; m_dispColor->setEnabled(false); m_dispColor->setEditable(true);
+    mkEdit(m_dispPlate); mkEdit(m_dispVin); mkEdit(m_dispEngine); mkEdit(m_dispModel);
+    mkEdit(m_dispOwner); mkEdit(m_dispPhone); mkEdit(m_dispAddress);
+    m_dispColor = new QComboBox; m_dispColor->setEditable(true);
     m_dispColor->addItems({"","白","黑","银","红","蓝","绿","灰","黄","棕","橙","紫"});
-    m_dispFuel  = new QComboBox; m_dispFuel->setEnabled(false);  m_dispFuel->setEditable(true);
+    m_dispColor->setFixedWidth(50);
+    m_dispFuel  = new QComboBox; m_dispFuel->setEditable(true);
     m_dispFuel->addItems({"","汽油","柴油","电动","混动","天然气"});
-    m_dispTrans = new QComboBox; m_dispTrans->setEnabled(false); m_dispTrans->setEditable(true);
+    m_dispFuel->setFixedWidth(60);
+    m_dispTrans = new QComboBox; m_dispTrans->setEditable(true);
     m_dispTrans->addItems({"","自动","手动","无级变速","双离合","AMT"});
-    m_dispPurchase = new QLabel("-");
+    m_dispTrans->setFixedWidth(80);
+    m_dispPurchase = new QDateEdit;
+    m_dispPurchase->setCalendarPopup(true);
+    m_dispPurchase->setDisplayFormat("yyyy-MM-dd");
+    m_dispPurchase->setStyleSheet(sEdit);
+    // 固定宽度
+    m_dispPlate->setFixedWidth(90);
+    m_dispVin->setFixedWidth(170);
+    m_dispEngine->setFixedWidth(150);
+    m_dispModel->setFixedWidth(150);
+    m_dispOwner->setFixedWidth(50);
+    m_dispPhone->setFixedWidth(100);
+    m_dispAddress->setFixedWidth(150);
 
-    // 最小宽度设置（控制在窗口内不产生横向滚动条）
-    m_dispPlate->setMinimumWidth(200);
-    m_dispVin->setMinimumWidth(400);
-    m_dispEngine->setMinimumWidth(200);
-    m_dispOwner->setMinimumWidth(100);
-    m_dispPhone->setMinimumWidth(200);
-    m_dispModel->setMinimumWidth(400);
-
-    ig->addWidget(L("车牌:"),0,0); ig->addWidget(m_dispPlate,0,1);
-    ig->addWidget(L("VIN:"),0,2);  ig->addWidget(m_dispVin,0,3);
-    ig->addWidget(L("发动机:"),0,4); ig->addWidget(m_dispEngine,0,5);
-    ig->addWidget(L("车型:"),1,0); ig->addWidget(m_dispModel,1,1);
-    ig->addWidget(L("车主:"),1,2); ig->addWidget(m_dispOwner,1,3);
-    ig->addWidget(L("电话:"),1,4); ig->addWidget(m_dispPhone,1,5);
-    // 第2行：地址+颜色+油类+变速箱 四合一
+    // 第0行：车牌 + VIN + 发动机 + 车型
     {
-        QHBoxLayout *row2 = new QHBoxLayout;
-        row2->addWidget(L("地址:"));
-        row2->addWidget(m_dispAddress);
-        row2->addWidget(L("颜色:"));
-        row2->addWidget(m_dispColor);
-        row2->addWidget(L("油类:"));
-        row2->addWidget(m_dispFuel);
-        row2->addWidget(L("变速箱:"));
-        row2->addWidget(m_dispTrans);
-        row2->addWidget(L("购车日期:"));
-        row2->addWidget(m_dispPurchase);
-        ig->addLayout(row2,2,0,1,6);
+        QHBoxLayout *row = new QHBoxLayout;
+        row->setSpacing(3);
+        row->addWidget(L("车牌:")); row->addWidget(m_dispPlate);
+        row->addWidget(L("VIN:"));  row->addWidget(m_dispVin);
+        row->addWidget(L("发动机:")); row->addWidget(m_dispEngine);
+        row->addWidget(L("车型:")); row->addWidget(m_dispModel);
+        row->addStretch();
+        igOuter->addLayout(row);
     }
-    // 第3行：操作按钮
+    // 第1行：车主 + 电话 + 地址 + 颜色 + 油类 + 变速箱 + 购车日期
     {
-        QHBoxLayout *row3 = new QHBoxLayout;
-        row3->addStretch();
+        QHBoxLayout *row = new QHBoxLayout;
+        row->setSpacing(3);
+        row->addWidget(L("车主:")); row->addWidget(m_dispOwner);
+        row->addWidget(L("电话:")); row->addWidget(m_dispPhone);
+        row->addWidget(L("地址:")); row->addWidget(m_dispAddress);
+        row->addWidget(L("颜色:")); row->addWidget(m_dispColor);
+        row->addWidget(L("油类:")); row->addWidget(m_dispFuel);
+        row->addWidget(L("变速箱:")); row->addWidget(m_dispTrans);
+        row->addWidget(L("购车:")); row->addWidget(m_dispPurchase);
+        row->addStretch();
+        igOuter->addLayout(row);
+    }
+    // 第2行：保存修改 + 维修历史按钮
+    {
+        QHBoxLayout *row = new QHBoxLayout;
+        m_btnSaveVehicleInfo = new QPushButton("保存修改");
+        m_btnSaveVehicleInfo->setStyleSheet(
+            "QPushButton{padding:4px 12px;border:none;border-radius:3px;"
+            "background:#27ae60;color:#fff;font-size:12px;font-weight:bold;}"
+            "QPushButton:hover{background:#219a52;}");
+        m_btnSaveVehicleInfo->setMinimumHeight(24);
+        row->addWidget(m_btnSaveVehicleInfo);
+        row->addStretch();
         m_btnMaintenanceHistory = new QPushButton("维修历史");
         m_btnMaintenanceHistory->setStyleSheet(
-            "QPushButton{padding:6px 14px;border:none;border-radius:3px;"
+            "QPushButton{padding:4px 12px;border:none;border-radius:3px;"
             "background:#2980b9;color:#fff;font-size:12px;font-weight:bold;}"
             "QPushButton:hover{background:#2471a3;}");
-        m_btnMaintenanceHistory->setMinimumHeight(28);
-        row3->addWidget(m_btnMaintenanceHistory);
-        ig->addLayout(row3,3,0,1,6);
+        m_btnMaintenanceHistory->setMinimumHeight(24);
+        row->addWidget(m_btnMaintenanceHistory);
+        igOuter->addLayout(row);
     }
     cl->addWidget(m_infoGroup);
 
@@ -247,92 +261,119 @@ void FrontDeskPage::setupUI()
     ng->addWidget(L("电话*:"),2,2); ng->addWidget(m_nPhone,2,3);
     ng->addWidget(L("地址:"),2,4);  ng->addWidget(m_nAddress,2,5);
     ng->addWidget(L("购车时间:"),3,0); ng->addWidget(m_nPurchase,3,1);
+
+    // 保存 + 取消按钮
+    {
+        QHBoxLayout *rowBtn = new QHBoxLayout;
+        rowBtn->addStretch();
+        m_btnSaveNewCar = new QPushButton("保存");
+        m_btnSaveNewCar->setStyleSheet(S_BTN2H);
+        m_btnSaveNewCar->setMinimumHeight(28);
+        rowBtn->addWidget(m_btnSaveNewCar);
+        m_btnCancelNewCar = new QPushButton("取消");
+        m_btnCancelNewCar->setStyleSheet(S_BTNGH);
+        m_btnCancelNewCar->setMinimumHeight(28);
+        rowBtn->addWidget(m_btnCancelNewCar);
+        ng->addLayout(rowBtn, 4, 0, 1, 6);
+    }
+
     cl->addWidget(m_newGroup);
 
     // ==================== 4. 派工区 ====================
-    QGroupBox *g4 = new QGroupBox("派工信息");
-    QGridLayout *dg = new QGridLayout(g4);
-    dg->setContentsMargins(6,4,6,4); dg->setSpacing(3);
-    dg->setColumnStretch(1,1); dg->setColumnStretch(3,1); dg->setColumnStretch(5,1);
+    m_dispatchGroup = new QGroupBox("派工信息");
+    QVBoxLayout *dg = new QVBoxLayout(m_dispatchGroup);
+    dg->setContentsMargins(4,2,4,2); dg->setSpacing(2);
 
-    m_editOrderNo = new QLineEdit; m_editOrderNo->setReadOnly(true); m_editOrderNo->setStyleSheet("background:#f0f0f0;");
-    m_editOrderNo->setMinimumWidth(400);
-    m_cmbAdvisor  = new QComboBox;   m_cmbAdvisor->setMinimumWidth(100);
-    m_cmbMainTech = new QComboBox;   m_cmbMainTech->setMinimumWidth(100);
+    m_editOrderNo = new QLineEdit; m_editOrderNo->setReadOnly(true);
+    m_editOrderNo->setStyleSheet("background:#f0f0f0;");
+    m_editOrderNo->setFixedWidth(150);
+    m_cmbAdvisor  = new QComboBox;   m_cmbAdvisor->setFixedWidth(50);
+    m_cmbMainTech = new QComboBox;   m_cmbMainTech->setMaximumWidth(150);
     m_spinMileage = new QSpinBox;    m_spinMileage->setRange(0,9999999); m_spinMileage->setSuffix(" km");
-    m_spinMileage->setMinimumWidth(250);
-    m_dateRepair = new QDateEdit;    m_dateRepair->setCalendarPopup(true); m_dateRepair->setDisplayFormat("yyyy-MM-dd"); m_dateRepair->setDate(QDate::currentDate());
-    m_dateRepair->setMinimumWidth(250);
-    m_dateEstimated = new QDateEdit; m_dateEstimated->setCalendarPopup(true); m_dateEstimated->setDisplayFormat("yyyy-MM-dd"); m_dateEstimated->setDate(QDate::currentDate());
-    m_dateEstimated->setMinimumWidth(250);
+    m_spinMileage->setFixedWidth(100);
+    m_dateRepair = new QDateEdit;    m_dateRepair->setCalendarPopup(true);
+    m_dateRepair->setDisplayFormat("yyyy-MM-dd"); m_dateRepair->setDate(QDate::currentDate());
+    m_dateRepair->setFixedWidth(100);
+    m_dateEstimated = new QDateEdit; m_dateEstimated->setCalendarPopup(true);
+    m_dateEstimated->setDisplayFormat("yyyy-MM-dd"); m_dateEstimated->setDate(QDate::currentDate());
+    m_dateEstimated->setFixedWidth(100);
     m_cmbShift = new QComboBox;      m_cmbShift->addItems({"","白班","夜班"});
-    m_cmbShift->setMinimumWidth(75);
-    m_textContent = new QTextEdit;   m_textContent->setPlaceholderText("选填"); m_textContent->setMaximumHeight(50);
+    m_cmbShift->setFixedWidth(50);
+    m_textContent = new QTextEdit;   m_textContent->setPlaceholderText("选填");
+    m_textContent->setFixedHeight(40);  // 约两行高度
+    m_textContent->setFixedWidth(400);
+    m_textContent->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
     // 安装回车导航事件过滤器
     m_editOrderNo->installEventFilter(this);
     m_spinMileage->installEventFilter(this);
-    m_textContent->installEventFilter(this);
     m_dateRepair->installEventFilter(this);
     m_dateEstimated->installEventFilter(this);
 
-    // 第0行：工单号+顾问+主修+公里数 四合一
+    // 第0行：工单号 + 顾问 + 主修 + 公里数 + 报修日期 + 预估完工 + 班别
     {
         QHBoxLayout *row0 = new QHBoxLayout;
-        row0->addWidget(L("工单号:"));
-        row0->addWidget(m_editOrderNo);
-        row0->addWidget(L("顾问:"));
-        row0->addWidget(m_cmbAdvisor);
-        row0->addWidget(L("主修:"));
-        row0->addWidget(m_cmbMainTech);
-        row0->addWidget(L("公里数:"));
-        row0->addWidget(m_spinMileage);
-        dg->addLayout(row0,0,0,1,6);
+        row0->setSpacing(3);
+        row0->addWidget(L("工单号:")); row0->addWidget(m_editOrderNo);
+        row0->addWidget(L("顾问:"));   row0->addWidget(m_cmbAdvisor);
+        row0->addWidget(L("主修:"));   row0->addWidget(m_cmbMainTech, 1);
+        row0->addWidget(L("公里数:")); row0->addWidget(m_spinMileage);
+        row0->addWidget(L("报修:"));   row0->addWidget(m_dateRepair);
+        row0->addWidget(L("完工:"));   row0->addWidget(m_dateEstimated);
+        row0->addWidget(L("班别:"));   row0->addWidget(m_cmbShift);
+        dg->addLayout(row0);
     }
-    dg->addWidget(L("报修日期:"),1,0); dg->addWidget(m_dateRepair,1,1);
-    dg->addWidget(L("预估完工日期:"),1,2); dg->addWidget(m_dateEstimated,1,3);
-    dg->addWidget(L("班别:"),1,4);   dg->addWidget(m_cmbShift,1,5);
-    dg->addWidget(L("内容:"),2,0,Qt::AlignTop); dg->addWidget(m_textContent,2,1,1,5);
-    cl->addWidget(g4);
-
-    // ==================== 5. 报修内容（动态行） ====================
-    QGroupBox *g5 = new QGroupBox("报修内容");
-    QVBoxLayout *rv = new QVBoxLayout(g5);
-    rv->setContentsMargins(6,4,6,4); rv->setSpacing(2);
-
-    // 表头
-    QHBoxLayout *headerRow = new QHBoxLayout;
-    headerRow->addWidget(L("维修人"));
-    headerRow->addWidget(L("内容"));
-    headerRow->addWidget(L("费用"));
-    rv->addLayout(headerRow);
-
-    QStringList types = {"机电","钣金","喷漆"};
-    for (int i = 0; i < 3; i++) {
-        // 分类标签
-        QLabel *catLabel = new QLabel(types[i]);
-        catLabel->setStyleSheet("font-weight:bold;color:#2c3e50;padding:2px 0;");
-        rv->addWidget(catLabel);
-
-        // 行容器
-        m_repairCats[i].rowsLayout = new QVBoxLayout;
-        m_repairCats[i].rowsLayout->setContentsMargins(0,0,0,0);
-        m_repairCats[i].rowsLayout->setSpacing(2);
-        rv->addLayout(m_repairCats[i].rowsLayout);
-
-        // 添加初始空行
-        addRepairRow(i);
+    // 第1行：内容 + 取消按钮 同行右侧
+    {
+        QHBoxLayout *row2 = new QHBoxLayout;
+        row2->setSpacing(3);
+        row2->addWidget(L("内容:"));
+        row2->addWidget(m_textContent);
+        row2->addStretch();
+        m_btnCancelDispatch = new QPushButton("取消派工");
+        m_btnCancelDispatch->setStyleSheet(S_BTNGH);
+        m_btnCancelDispatch->setMinimumHeight(28);
+        row2->addWidget(m_btnCancelDispatch);
+        dg->addLayout(row2);
     }
-    cl->addWidget(g5);
+
+    cl->addWidget(m_dispatchGroup);
+
+    // ==================== 5. 报修内容（多列布局，左右滚动） ====================
+    m_repairGroup = new QGroupBox("报修内容");
+    {
+        QVBoxLayout *outerRV = new QVBoxLayout(m_repairGroup);
+        outerRV->setContentsMargins(4,4,4,4);
+
+        m_repairScroll = new QScrollArea;
+        m_repairScroll->setWidgetResizable(true);
+        m_repairScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+        m_repairScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        m_repairScroll->setFixedHeight(240);
+
+        m_repairColumns = new QWidget;
+        m_columnsLayout = new QHBoxLayout(m_repairColumns);
+        m_columnsLayout->setContentsMargins(0,0,0,0);
+        m_columnsLayout->setSpacing(8);
+
+        m_repairScroll->setWidget(m_repairColumns);
+        outerRV->addWidget(m_repairScroll);
+    }
+    cl->addWidget(m_repairGroup);
+
+    // 初始空行（机电/钣金/喷漆 各一行）
+    addRepairRow("机电");
+    addRepairRow("钣金");
+    addRepairRow("喷漆");
 
     // ==================== 6. 费用 ====================
-    QGroupBox *g6 = new QGroupBox("费用明细");
-    QGridLayout *fg = new QGridLayout(g6);
-    fg->setContentsMargins(6,4,6,4); fg->setSpacing(3);
-    m_spinMat   = new QDoubleSpinBox; m_spinMat->setRange(0,999999.99);   m_spinMat->setPrefix("¥ "); m_spinMat->setDecimals(2);
-    m_spinOther = new QDoubleSpinBox; m_spinOther->setRange(0,999999.99); m_spinOther->setPrefix("¥ "); m_spinOther->setDecimals(2);
-    m_spinMgmt  = new QDoubleSpinBox; m_spinMgmt->setRange(0,999999.99);  m_spinMgmt->setPrefix("¥ "); m_spinMgmt->setDecimals(2);
-    m_spinDep   = new QDoubleSpinBox; m_spinDep->setRange(0,999999.99);   m_spinDep->setPrefix("¥ ");  m_spinDep->setDecimals(2);
+    m_feeGroup = new QGroupBox("费用明细");
+    QVBoxLayout *fg = new QVBoxLayout(m_feeGroup);
+    fg->setContentsMargins(4,2,4,2); fg->setSpacing(2);
+    m_spinMat   = new QDoubleSpinBox; m_spinMat->setRange(0,999999.99);   m_spinMat->setPrefix("¥ "); m_spinMat->setDecimals(2); m_spinMat->setMaximumWidth(110);
+    m_spinOther = new QDoubleSpinBox; m_spinOther->setRange(0,999999.99); m_spinOther->setPrefix("¥ "); m_spinOther->setDecimals(2); m_spinOther->setMaximumWidth(110);
+    m_spinMgmt  = new QDoubleSpinBox; m_spinMgmt->setRange(0,999999.99);  m_spinMgmt->setPrefix("¥ "); m_spinMgmt->setDecimals(2); m_spinMgmt->setMaximumWidth(110);
+    m_spinDep   = new QDoubleSpinBox; m_spinDep->setRange(0,999999.99);   m_spinDep->setPrefix("¥ ");  m_spinDep->setDecimals(2); m_spinDep->setMaximumWidth(110);
 
     // 安装回车导航
     m_spinMat->installEventFilter(this);
@@ -344,47 +385,65 @@ void FrontDeskPage::setupUI()
     connect(m_spinOther, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &FrontDeskPage::onFeeChanged);
     connect(m_spinMgmt, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &FrontDeskPage::onFeeChanged);
 
-    // 报修费用合计（公式费用条目）
+    // 公式费合计
     m_lblFormulaFee = new QLabel("¥ 0.00");
-    m_lblFormulaFee->setStyleSheet("font-size:16px;font-weight:bold;color:#2980b9;");
+    m_lblFormulaFee->setStyleSheet("font-size:14px;font-weight:bold;color:#2980b9;");
+    // 第0行：费用输入 + 合计，同一行
+    {
+        QHBoxLayout *row = new QHBoxLayout;
+        row->setSpacing(3);
+        row->addWidget(L("材料费:")); row->addWidget(m_spinMat);
+        row->addWidget(L("其它费:")); row->addWidget(m_spinOther);
+        row->addWidget(L("管理费:")); row->addWidget(m_spinMgmt);
+        row->addWidget(L("订金:"));   row->addWidget(m_spinDep);
+        row->addWidget(L("公式费合计:")); row->addWidget(m_lblFormulaFee);
+        m_lblTotal = new QLabel("¥ 0.00");
+        m_lblTotal->setStyleSheet("font-size:16px;font-weight:bold;color:#e74c3c;");
+        row->addWidget(L("合计:")); row->addWidget(m_lblTotal);
+        row->addStretch();
+        fg->addLayout(row);
+    }
+    // 第1行：操作按钮
+    {
+        QHBoxLayout *br = new QHBoxLayout;
+        br->setSpacing(4);
+        m_btnPrint = new QPushButton("打印工单(内部)");
+        m_btnPrint->setStyleSheet("QPushButton{padding:4px 10px;border:none;border-radius:3px;background:#8e44ad;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#7d3c98;}");
+        m_btnCreate = new QPushButton("保存并派工");
+        m_btnCreate->setStyleSheet(S_BTN1H);
+        m_btnCreate->setMinimumHeight(28); m_btnPrint->setMinimumHeight(28);
 
-    fg->addWidget(L("材料费:"),0,0); fg->addWidget(m_spinMat,0,1);
-    fg->addWidget(L("其它费:"),0,2); fg->addWidget(m_spinOther,0,3);
-    fg->addWidget(L("管理费:"),0,4); fg->addWidget(m_spinMgmt,0,5);
-    fg->addWidget(L("订金:"),1,0);   fg->addWidget(m_spinDep,1,1);
-    fg->addWidget(L("报修费用合计:"),1,2,Qt::AlignRight|Qt::AlignVCenter); fg->addWidget(m_lblFormulaFee,1,3);
-    m_lblTotal = new QLabel("¥ 0.00");
-    m_lblTotal->setStyleSheet("font-size:20px;font-weight:bold;color:#e74c3c;");
-    fg->addWidget(L("合计:"),1,4,Qt::AlignRight|Qt::AlignVCenter); fg->addWidget(m_lblTotal,1,5);
+        QPushButton *btnPrintQuote = new QPushButton("打印报价单(客户)");
+        btnPrintQuote->setStyleSheet("QPushButton{padding:4px 10px;border:none;border-radius:3px;background:#16a085;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#138d75;}");
+        btnPrintQuote->setMinimumHeight(28);
+        connect(btnPrintQuote, &QPushButton::clicked, this, &FrontDeskPage::onPrintQuote);
 
-    QHBoxLayout *br = new QHBoxLayout;
-    m_btnPrint = new QPushButton("打印工单(内部)"); m_btnPrint->setStyleSheet("QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#8e44ad;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#7d3c98;}");
-    m_btnCreate = new QPushButton("保存并派工"); m_btnCreate->setStyleSheet(S_BTN1H);
-    m_btnCreate->setMinimumHeight(32); m_btnPrint->setMinimumHeight(32);
+        QPushButton *btnExportQuotePdf = new QPushButton("导出报价单PDF");
+        btnExportQuotePdf->setStyleSheet("QPushButton{padding:4px 10px;border:none;border-radius:3px;background:#c0392b;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#a93226;}");
+        btnExportQuotePdf->setMinimumHeight(28);
+        connect(btnExportQuotePdf, &QPushButton::clicked, this, &FrontDeskPage::onExportQuotePdf);
 
-    QPushButton *btnPrintQuote = new QPushButton("打印报价单(客户)");
-    btnPrintQuote->setStyleSheet("QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#16a085;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#138d75;}");
-    btnPrintQuote->setMinimumHeight(32);
-    connect(btnPrintQuote, &QPushButton::clicked, this, &FrontDeskPage::onPrintQuote);
-
-    QPushButton *btnExportQuotePdf = new QPushButton("导出报价单PDF");
-    btnExportQuotePdf->setStyleSheet("QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#c0392b;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#a93226;}");
-    btnExportQuotePdf->setMinimumHeight(32);
-    connect(btnExportQuotePdf, &QPushButton::clicked, this, &FrontDeskPage::onExportQuotePdf);
-
-    br->addStretch(); br->addWidget(btnPrintQuote); br->addWidget(btnExportQuotePdf); br->addWidget(m_btnPrint); br->addWidget(m_btnCreate);
-    fg->addLayout(br,2,0,1,6);
-    cl->addWidget(g6);
+        br->addStretch();
+        br->addWidget(btnPrintQuote);
+        br->addWidget(btnExportQuotePdf);
+        br->addWidget(m_btnPrint);
+        br->addWidget(m_btnCreate);
+        fg->addLayout(br);
+    }
+    cl->addWidget(m_feeGroup);
     cl->addStretch();
 
     sa->setWidget(c); outer->addWidget(sa, 1);
 
     // ==================== 信号 ====================
     connect(m_btnLock,   &QPushButton::clicked, this, &FrontDeskPage::onLockVehicle);
-    connect(m_btnUnlock, &QPushButton::clicked, this, &FrontDeskPage::onClearVehicle);
     connect(m_btnCreate, &QPushButton::clicked, this, &FrontDeskPage::onCreateWorkOrder);
     connect(m_btnPrint,  &QPushButton::clicked, this, &FrontDeskPage::onPrintWorkOrder);
     connect(m_btnMaintenanceHistory, &QPushButton::clicked, this, &FrontDeskPage::onShowMaintenanceHistory);
+    connect(m_btnSaveVehicleInfo, &QPushButton::clicked, this, &FrontDeskPage::onSaveVehicleInfo);
+    connect(m_btnSaveNewCar,   &QPushButton::clicked, this, &FrontDeskPage::onSaveNewCar);
+    connect(m_btnCancelNewCar, &QPushButton::clicked, this, &FrontDeskPage::onCancelNewCar);
+    connect(m_btnCancelDispatch, &QPushButton::clicked, this, &FrontDeskPage::onCancelDispatch);
 
     // 搜索：回车/Tab/失焦触发搜索
     QList<QLineEdit*> searchFields = {m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel};
@@ -393,22 +452,27 @@ void FrontDeskPage::setupUI()
     }
 
     loadCombos(); resetForm();
+    setState(STATE_SEARCH);   // 初始：仅显示车辆查找
 }
 
 // ============================================================
-// addRepairRow — 动态添加报修内容行
+// addRepairRow — 添加报修内容行
 // ============================================================
-void FrontDeskPage::addRepairRow(int catIndex)
+void FrontDeskPage::addRepairRow(const QString &type)
 {
     ItemRow row;
+    row.container = nullptr;
+    row.type = type;
     row.tech = new QComboBox;
-    row.tech->setMinimumWidth(100);
+    row.tech->setMinimumWidth(90);
     row.content = new QLineEdit;
     row.content->setPlaceholderText("内容");
+    row.content->setFixedWidth(250);
     row.fee = new QDoubleSpinBox;
     row.fee->setRange(0, 999999.99);
     row.fee->setPrefix("¥ ");
     row.fee->setDecimals(2);
+    row.fee->setMinimumWidth(100);
 
     // 加载技师列表
     row.tech->clear();
@@ -424,16 +488,23 @@ void FrontDeskPage::addRepairRow(int catIndex)
     connect(row.fee, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &FrontDeskPage::onFeeChanged);
 
-    // 内容编辑完成 → 如果最后一行有内容则自动新增空行
-    connect(row.content, &QLineEdit::editingFinished, this, [this, catIndex]() {
-        auto &rows = m_repairCats[catIndex].rows;
-        if (rows.isEmpty()) return;
-        ItemRow &last = rows.last();
-        bool lastHasContent = !last.content->text().trimmed().isEmpty()
-                           || last.fee->value() > 0
-                           || last.tech->currentData().toInt() > 0;
+    // 内容编辑完成 → 如果同类最后一行的内容非空，自动新增同类型空行
+    QString typeCapture = type;
+    connect(row.content, &QLineEdit::editingFinished, this, [this, typeCapture]() {
+        // 找该类最后一行的指针
+        ItemRow *lastOfType = nullptr;
+        for (int i = m_allRows.size() - 1; i >= 0; i--) {
+            if (m_allRows[i].type == typeCapture) {
+                lastOfType = &m_allRows[i];
+                break;
+            }
+        }
+        if (!lastOfType) return;
+        bool lastHasContent = !lastOfType->content->text().trimmed().isEmpty()
+                           || lastOfType->fee->value() > 0
+                           || lastOfType->tech->currentData().toInt() > 0;
         if (lastHasContent)
-            addRepairRow(catIndex);
+            addRepairRow(typeCapture);
     });
 
     // 安装回车导航事件过滤器
@@ -441,17 +512,93 @@ void FrontDeskPage::addRepairRow(int catIndex)
     row.content->installEventFilter(this);
     row.fee->installEventFilter(this);
 
-    // 创建行容器
-    row.container = new QWidget;
-    QHBoxLayout *rowLayout = new QHBoxLayout(row.container);
-    rowLayout->setContentsMargins(0,0,0,0);
-    rowLayout->setSpacing(3);
-    rowLayout->addWidget(row.tech);
-    rowLayout->addWidget(row.content, 1);
-    rowLayout->addWidget(row.fee);
+    m_allRows.append(row);
+    rebuildRepairLayout();
+}
 
-    m_repairCats[catIndex].rowsLayout->addWidget(row.container);
-    m_repairCats[catIndex].rows.append(row);
+// ============================================================
+// rebuildRepairLayout — 多列布局，每列最多 11 行，同类放一块
+// ============================================================
+void FrontDeskPage::rebuildRepairLayout()
+{
+    // 清空旧布局
+    QLayoutItem *child;
+    while ((child = m_columnsLayout->takeAt(0)) != nullptr) {
+        if (child->widget())
+            child->widget()->deleteLater();
+        delete child;
+    }
+
+    if (m_allRows.isEmpty()) return;
+
+    // 按类型分组，保持插入顺序: 机电 → 钣金 → 喷漆
+    QStringList typeOrder = {"机电", "钣金", "喷漆"};
+    QList<ItemRow*> ordered;
+    for (const QString &t : typeOrder) {
+        for (auto &row : m_allRows) {
+            if (row.type == t)
+                ordered.append(&row);
+        }
+    }
+
+    // 分列：每列最多 MAX_ROWS_PER_COLUMN 行
+    for (int colStart = 0; colStart < ordered.size(); colStart += MAX_ROWS_PER_COLUMN) {
+        int colEnd = qMin(colStart + MAX_ROWS_PER_COLUMN, ordered.size());
+
+        QWidget *colWidget = new QWidget;
+        QVBoxLayout *colLayout = new QVBoxLayout(colWidget);
+        colLayout->setContentsMargins(2, 0, 2, 0);
+        colLayout->setSpacing(2);
+
+        // 列头
+        {
+            QHBoxLayout *hdr = new QHBoxLayout;
+            QLabel *lblTech = new QLabel("维修人");
+            lblTech->setStyleSheet("font-weight:bold;");
+            lblTech->setFixedWidth(92);
+            QLabel *lblContent = new QLabel("内容");
+            lblContent->setStyleSheet("font-weight:bold;");
+            lblContent->setFixedWidth(250);
+            QLabel *lblFee = new QLabel("费用");
+            lblFee->setStyleSheet("font-weight:bold;");
+            lblFee->setFixedWidth(100);
+            hdr->addWidget(lblTech);
+            hdr->addWidget(lblContent);
+            hdr->addWidget(lblFee);
+            hdr->addStretch();
+            colLayout->addLayout(hdr);
+        }
+
+        // 本列的行，同类型连续时显示类型标签
+        QString prevType;
+        for (int i = colStart; i < colEnd; i++) {
+            ItemRow *row = ordered[i];
+
+            // 类型切换时插入标签
+            if (row->type != prevType) {
+                QLabel *typeLabel = new QLabel(row->type);
+                typeLabel->setStyleSheet("font-weight:bold;color:#2c3e50;padding:2px 0;background:#ecf0f1;");
+                colLayout->addWidget(typeLabel);
+                prevType = row->type;
+            }
+
+            // 创建行容器（若尚未创建）
+            if (!row->container) {
+                row->container = new QWidget;
+                QHBoxLayout *rowLayout = new QHBoxLayout(row->container);
+                rowLayout->setContentsMargins(0, 0, 0, 0);
+                rowLayout->setSpacing(3);
+                rowLayout->addWidget(row->tech);
+                rowLayout->addWidget(row->content);
+                rowLayout->addWidget(row->fee);
+                rowLayout->addStretch();
+            }
+            colLayout->addWidget(row->container);
+        }
+
+        colLayout->addStretch();
+        m_columnsLayout->addWidget(colWidget);
+    }
 }
 
 // ============================================================
@@ -463,6 +610,16 @@ void FrontDeskPage::loadCombos()
     QSqlQuery q(DbManager::instance().database());
     q.exec("SELECT id,name FROM t_employee WHERE position IN ('前台','经理') AND is_active=1 ORDER BY name");
     while (q.next()) m_cmbAdvisor->addItem(q.value(1).toString(), q.value(0).toInt());
+    // 自动填入当前操作者
+    {
+        int curId = Session::instance().userId();
+        for (int i = 0; i < m_cmbAdvisor->count(); i++) {
+            if (m_cmbAdvisor->itemData(i).toInt() == curId) {
+                m_cmbAdvisor->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
 
     m_cmbMainTech->clear(); m_cmbMainTech->addItem("",0);
     q.exec("SELECT id,name,position FROM t_employee WHERE is_active=1 ORDER BY name");
@@ -492,36 +649,52 @@ void FrontDeskPage::resetForm()
     m_sOwner->clear(); m_sPhone->clear(); m_sModel->clear();
     clearGhost();
     m_lblStatus->setText("未锁定"); m_lblStatus->setStyleSheet("color:#e74c3c;font-weight:bold;");
-    m_infoGroup->setVisible(false); m_newGroup->setVisible(false);
 
     m_editOrderNo->setText(generateOrderNo());
     emit orderNoChanged(m_editOrderNo->text());
-    m_spinMileage->setValue(0); m_cmbAdvisor->setCurrentIndex(0);
+    m_spinMileage->setValue(0);
+    // 顾问保持当前用户选中
+    {
+        int curId = Session::instance().userId();
+        for (int i = 0; i < m_cmbAdvisor->count(); i++) {
+            if (m_cmbAdvisor->itemData(i).toInt() == curId) {
+                m_cmbAdvisor->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
     m_cmbMainTech->setCurrentIndex(0); m_textContent->clear();
     m_dateRepair->setDate(QDate::currentDate()); m_dateEstimated->setDate(QDate::currentDate());
     m_cmbShift->setCurrentIndex(0);
 
-    // 清空动态报修内容行，每类重置为一个空行
-    for (int i = 0; i < 3; i++) {
-        for (auto &row : m_repairCats[i].rows) {
-            m_repairCats[i].rowsLayout->removeWidget(row.container);
+    // 清空动态报修内容行
+    for (auto &row : m_allRows) {
+        if (row.container)
             delete row.container;
-        }
-        m_repairCats[i].rows.clear();
-        addRepairRow(i);
     }
+    m_allRows.clear();
+
+    // 重置为每类一个空行
+    addRepairRow("机电");
+    addRepairRow("钣金");
+    addRepairRow("喷漆");
 
     m_spinMat->setValue(0); m_spinOther->setValue(0); m_spinMgmt->setValue(0); m_spinDep->setValue(0);
     m_lblTotal->setText("¥ 0.00");
     m_lblFormulaFee->setText("¥ 0.00");
+
+    // 重置新车录入表单
+    m_nPlate->clear(); m_nVin->clear(); m_nEngine->clear();
+    m_nModel->clear(); m_nOwner->clear(); m_nPhone->clear(); m_nAddress->clear();
+    m_nColor->setCurrentIndex(0); m_nFuel->setCurrentIndex(0); m_nTrans->setCurrentIndex(0);
+    m_nPurchase->setDate(QDate::currentDate());
 }
 
 double FrontDeskPage::calcRepairFee()
 {
     double t = 0;
-    for (int i = 0; i < 3; i++)
-        for (auto &row : m_repairCats[i].rows)
-            t += row.fee->value();
+    for (auto &row : m_allRows)
+        t += row.fee->value();
     return t;
 }
 
@@ -598,12 +771,10 @@ void FrontDeskPage::triggerFuzzySearch()
         items << vi;
     }
 
-    m_newGroup->setVisible(false);
-
     if (items.isEmpty()) {
         m_foundVid = 0; clearGhost();
         m_lblStatus->setText("未锁定"); m_lblStatus->setStyleSheet("color:#e74c3c;font-weight:bold;");
-        m_infoGroup->setVisible(false); m_newGroup->setVisible(true);
+        setState(STATE_NEW_CAR);
         return;
     }
 
@@ -613,10 +784,10 @@ void FrontDeskPage::triggerFuzzySearch()
         clearGhost();
         fillVehicleData(items[0].id);
         m_lblStatus->setText("已锁定"); m_lblStatus->setStyleSheet("color:#27ae60;font-weight:bold;");
-        m_infoGroup->setVisible(true);
         m_btnMaintenanceHistory->setVisible(true);
         m_editOrderNo->setText(generateOrderNo());
         emit orderNoChanged(m_editOrderNo->text());
+        setState(STATE_DISPATCH);
         return;
     }
 
@@ -651,10 +822,10 @@ void FrontDeskPage::triggerFuzzySearch()
         clearGhost();
         fillVehicleData(m_lockedVid);
         m_lblStatus->setText("已锁定"); m_lblStatus->setStyleSheet("color:#27ae60;font-weight:bold;");
-        m_infoGroup->setVisible(true);
         m_btnMaintenanceHistory->setVisible(true);
         m_editOrderNo->setText(generateOrderNo());
         emit orderNoChanged(m_editOrderNo->text());
+        setState(STATE_DISPATCH);
     } else {
         m_lockedVid = 0;
         m_foundVid = 0;
@@ -695,7 +866,7 @@ void FrontDeskPage::fillVehicleData(int vid)
     m_dispFuel->setCurrentText(q.value(5).toString());
     m_dispTrans->setCurrentText(q.value(6).toString());
     m_spinMileage->setValue(q.value(7).toInt());
-    m_dispPurchase->setText(q.value(8).toDate().toString("yyyy-MM-dd"));
+    m_dispPurchase->setDate(q.value(8).toDate());
     m_dispOwner->setText(q.value(9).toString());
     m_dispPhone->setText(q.value(10).toString());
     m_dispAddress->setText(q.value(11).toString());
@@ -711,47 +882,6 @@ void FrontDeskPage::onLockVehicle()
 {
     if (m_lockedVid > 0) {
         QMessageBox::information(this, "已锁定", "车辆已锁定: " + m_dispPlate->text());
-        return;
-    }
-
-    if (m_newGroup->isVisible()) {
-        QString np = m_nPlate->text().trimmed();
-        QString ow = m_nOwner->text().trimmed();
-        QString ph = m_nPhone->text().trimmed();
-        QString md = m_nModel->text().trimmed();
-        if (np.isEmpty() || ow.isEmpty() || ph.isEmpty() || md.isEmpty()) {
-            QMessageBox::warning(this, "提示", "请填写车牌号、车主、电话、车型等必填信息");
-            return;
-        }
-
-        DbManager::instance().beginTransaction();
-        QSqlQuery q(DbManager::instance().database());
-        q.prepare("INSERT INTO t_vehicle (plate_number,vin,engine_number,model,purchase_date,"
-                  "color,fuel_type,transmission) "
-                  "VALUES (:p,:v,:e,:m,:pd,:col,:fuel,:trans)");
-        q.bindValue(":p",np); q.bindValue(":v",m_nVin->text().trimmed().isEmpty()?QVariant(QString()):m_nVin->text().trimmed());
-        q.bindValue(":e",m_nEngine->text().trimmed().isEmpty()?QVariant(QString()):m_nEngine->text().trimmed());
-        q.bindValue(":m",md);
-        q.bindValue(":pd",m_nPurchase->date());
-        q.bindValue(":col", m_nColor->currentText().isEmpty() ? QVariant(QString()) : m_nColor->currentText());
-        q.bindValue(":fuel", m_nFuel->currentText().isEmpty() ? QVariant(QString()) : m_nFuel->currentText());
-        q.bindValue(":trans", m_nTrans->currentText().isEmpty() ? QVariant(QString()) : m_nTrans->currentText());
-        if (!DbManager::instance().executeQuery(q)) { DbManager::instance().rollbackTransaction(); QMessageBox::warning(this,"保存失败",q.lastError().text()); return; }
-        m_lockedVid = q.lastInsertId().toInt();
-        q.prepare("INSERT INTO t_customer (vehicle_id,name,phone,address,type) VALUES (:vid,:n,:p,:addr,'车主')");
-        q.bindValue(":vid",m_lockedVid); q.bindValue(":n",ow); q.bindValue(":p",ph);
-        q.bindValue(":addr", m_nAddress->text().trimmed().isEmpty() ? QVariant(QString()) : m_nAddress->text().trimmed());
-        DbManager::instance().executeQuery(q);
-        DbManager::instance().commitTransaction();
-
-        fillVehicleData(m_lockedVid);
-        m_sPlate->setText(np);
-        m_lblStatus->setText("已锁定"); m_lblStatus->setStyleSheet("color:#27ae60;font-weight:bold;");
-        m_infoGroup->setVisible(true); m_newGroup->setVisible(false);
-        m_btnMaintenanceHistory->setVisible(true);
-        m_editOrderNo->setText(generateOrderNo());
-        emit orderNoChanged(m_editOrderNo->text());
-        QMessageBox::information(this,"成功","新车已保存并锁定 "+np);
         return;
     }
 
@@ -773,9 +903,9 @@ void FrontDeskPage::onClearVehicle()
     m_sOwner->clear(); m_sPhone->clear(); m_sModel->clear();
     clearGhost();
     m_lblStatus->setText("未锁定"); m_lblStatus->setStyleSheet("color:#e74c3c;font-weight:bold;");
-    m_infoGroup->setVisible(false); m_newGroup->setVisible(false);
     m_editOrderNo->setText(generateOrderNo());
     emit orderNoChanged(m_editOrderNo->text());
+    setState(STATE_SEARCH);
 }
 
 void FrontDeskPage::clearGhost()
@@ -783,8 +913,133 @@ void FrontDeskPage::clearGhost()
     m_dispPlate->clear(); m_dispVin->clear(); m_dispEngine->clear();
     m_dispModel->clear(); m_dispOwner->clear(); m_dispPhone->clear(); m_dispAddress->clear();
     m_dispColor->setCurrentIndex(0); m_dispFuel->setCurrentIndex(0); m_dispTrans->setCurrentIndex(0);
-    m_dispPurchase->setText("-");
+    m_dispPurchase->setDate(QDate::currentDate());
     m_btnMaintenanceHistory->setVisible(false);
+}
+
+// ============================================================
+// setState — 切换界面状态（查找 / 录入 / 派工）
+// ============================================================
+void FrontDeskPage::setState(FrontDeskState s)
+{
+    m_state = s;
+    m_searchGroup->setVisible(s == STATE_SEARCH);
+    m_newGroup->setVisible(s == STATE_NEW_CAR);
+    m_infoGroup->setVisible(s == STATE_DISPATCH);  // 派工状态显示车辆信息
+    m_dispatchGroup->setVisible(s == STATE_DISPATCH);
+    m_repairGroup->setVisible(s == STATE_DISPATCH);
+    m_feeGroup->setVisible(s == STATE_DISPATCH);
+}
+
+// ============================================================
+// 新车录入 → 保存并锁定
+// ============================================================
+void FrontDeskPage::onSaveNewCar()
+{
+    QString np = m_nPlate->text().trimmed();
+    QString ow = m_nOwner->text().trimmed();
+    QString ph = m_nPhone->text().trimmed();
+    QString md = m_nModel->text().trimmed();
+    if (np.isEmpty() || ow.isEmpty() || ph.isEmpty() || md.isEmpty()) {
+        QMessageBox::warning(this, "提示", "请填写车牌号、车主、电话、车型等必填信息");
+        return;
+    }
+
+    DbManager::instance().beginTransaction();
+    QSqlQuery q(DbManager::instance().database());
+    q.prepare("INSERT INTO t_vehicle (plate_number,vin,engine_number,model,purchase_date,"
+              "color,fuel_type,transmission) "
+              "VALUES (:p,:v,:e,:m,:pd,:col,:fuel,:trans)");
+    q.bindValue(":p",np); q.bindValue(":v",m_nVin->text().trimmed().isEmpty()?QVariant(QString()):m_nVin->text().trimmed());
+    q.bindValue(":e",m_nEngine->text().trimmed().isEmpty()?QVariant(QString()):m_nEngine->text().trimmed());
+    q.bindValue(":m",md);
+    q.bindValue(":pd",m_nPurchase->date());
+    q.bindValue(":col", m_nColor->currentText().isEmpty() ? QVariant(QString()) : m_nColor->currentText());
+    q.bindValue(":fuel", m_nFuel->currentText().isEmpty() ? QVariant(QString()) : m_nFuel->currentText());
+    q.bindValue(":trans", m_nTrans->currentText().isEmpty() ? QVariant(QString()) : m_nTrans->currentText());
+    if (!DbManager::instance().executeQuery(q)) { DbManager::instance().rollbackTransaction(); QMessageBox::warning(this,"保存失败",q.lastError().text()); return; }
+    m_lockedVid = q.lastInsertId().toInt();
+    q.prepare("INSERT INTO t_customer (vehicle_id,name,phone,address,type) VALUES (:vid,:n,:p,:addr,'车主')");
+    q.bindValue(":vid",m_lockedVid); q.bindValue(":n",ow); q.bindValue(":p",ph);
+    q.bindValue(":addr", m_nAddress->text().trimmed().isEmpty() ? QVariant(QString()) : m_nAddress->text().trimmed());
+    DbManager::instance().executeQuery(q);
+    DbManager::instance().commitTransaction();
+
+    fillVehicleData(m_lockedVid);
+    m_sPlate->setText(np);
+    m_lblStatus->setText("已锁定"); m_lblStatus->setStyleSheet("color:#27ae60;font-weight:bold;");
+    m_btnMaintenanceHistory->setVisible(true);
+    m_editOrderNo->setText(generateOrderNo());
+    emit orderNoChanged(m_editOrderNo->text());
+    setState(STATE_DISPATCH);
+    QMessageBox::information(this,"成功","新车已保存并锁定 "+np);
+}
+
+// ============================================================
+// 新车录入 → 取消，返回查找
+// ============================================================
+void FrontDeskPage::onCancelNewCar()
+{
+    m_nPlate->clear(); m_nVin->clear(); m_nEngine->clear();
+    m_nModel->clear(); m_nOwner->clear(); m_nPhone->clear(); m_nAddress->clear();
+    m_nColor->setCurrentIndex(0); m_nFuel->setCurrentIndex(0); m_nTrans->setCurrentIndex(0);
+    m_nPurchase->setDate(QDate::currentDate());
+    setState(STATE_SEARCH);
+}
+
+// ============================================================
+// 派工 → 取消，返回查找
+// ============================================================
+void FrontDeskPage::onCancelDispatch()
+{
+    onClearVehicle();
+}
+
+// ============================================================
+// 保存车辆信息修改
+// ============================================================
+void FrontDeskPage::onSaveVehicleInfo()
+{
+    if (m_lockedVid == 0) return;
+
+    if (QMessageBox::question(this, "确认保存",
+            "确认保存对车辆信息的修改？",
+            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    DbManager::instance().beginTransaction();
+    QSqlQuery q(DbManager::instance().database());
+
+    // 更新 t_vehicle
+    q.prepare("UPDATE t_vehicle SET plate_number=:p, vin=:v, engine_number=:e, "
+              "model=:m, color=:col, fuel_type=:fuel, transmission=:trans, "
+              "purchase_date=:pd WHERE id=:id");
+    q.bindValue(":p", m_dispPlate->text().trimmed());
+    q.bindValue(":v", m_dispVin->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispVin->text().trimmed());
+    q.bindValue(":e", m_dispEngine->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispEngine->text().trimmed());
+    q.bindValue(":m", m_dispModel->text().trimmed());
+    q.bindValue(":col", m_dispColor->currentText().isEmpty() ? QVariant(QString()) : m_dispColor->currentText());
+    q.bindValue(":fuel", m_dispFuel->currentText().isEmpty() ? QVariant(QString()) : m_dispFuel->currentText());
+    q.bindValue(":trans", m_dispTrans->currentText().isEmpty() ? QVariant(QString()) : m_dispTrans->currentText());
+    q.bindValue(":pd", m_dispPurchase->date());
+    q.bindValue(":id", m_lockedVid);
+    if (!DbManager::instance().executeQuery(q)) {
+        DbManager::instance().rollbackTransaction();
+        QMessageBox::warning(this, "保存失败", q.lastError().text());
+        return;
+    }
+
+    // 更新 t_customer（车主信息）
+    q.prepare("UPDATE t_customer SET name=:n, phone=:ph, address=:addr "
+              "WHERE vehicle_id=:vid AND type='车主'");
+    q.bindValue(":n", m_dispOwner->text().trimmed());
+    q.bindValue(":ph", m_dispPhone->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispPhone->text().trimmed());
+    q.bindValue(":addr", m_dispAddress->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispAddress->text().trimmed());
+    q.bindValue(":vid", m_lockedVid);
+    DbManager::instance().executeQuery(q);
+
+    DbManager::instance().commitTransaction();
+    QMessageBox::information(this, "保存成功", "车辆信息已更新");
 }
 
 // ============================================================
@@ -811,16 +1066,13 @@ void FrontDeskPage::onCreateWorkOrder()
         }
     }
 
-    // ========== 2. 报修内容验证：机电/钣金/喷漆至少填入一个条目 ==========
+    // ========== 2. 报修内容验证：至少填入一个条目 ==========
     bool hasItem = false;
-    for (int i = 0; i < 3; i++) {
-        for (auto &row : m_repairCats[i].rows) {
-            if (row.tech->currentData().toInt() > 0
-                || !row.content->text().trimmed().isEmpty()
-                || row.fee->value() > 0)
-            { hasItem = true; break; }
-        }
-        if (hasItem) break;
+    for (auto &row : m_allRows) {
+        if (row.tech->currentData().toInt() > 0
+            || !row.content->text().trimmed().isEmpty()
+            || row.fee->value() > 0)
+        { hasItem = true; break; }
     }
     if (!hasItem) { QMessageBox::warning(this,"提示","请至少填写一个报修内容条目（机电/钣金/喷漆）"); return; }
 
@@ -877,25 +1129,22 @@ void FrontDeskPage::onCreateWorkOrder()
     qDebug() << "[onCreateWorkOrder] 工单主表插入成功, lastInsertId:" << q.lastInsertId().toInt();
 
     int woid = q.lastInsertId().toInt();
-    QStringList types = {"机电","钣金","喷漆"};
-    for (int i = 0; i < 3; i++) {
-        for (auto &row : m_repairCats[i].rows) {
-            int techId = row.tech->currentData().toInt();
-            QString cont = row.content->text().trimmed();
-            double fee = row.fee->value();
-            if (techId == 0 && cont.isEmpty() && fee == 0) continue;
-            q.prepare("INSERT INTO t_workorder_repair_item (workorder_id,item_type,repair_person,repair_content,fee) "
-                      "VALUES (:woid,:type,:person,:cont,:fee)");
-            q.bindValue(":woid",woid); q.bindValue(":type",types[i]);
-            q.bindValue(":person",row.tech->currentText()); q.bindValue(":cont",cont); q.bindValue(":fee",fee);
+    for (auto &row : m_allRows) {
+        int techId = row.tech->currentData().toInt();
+        QString cont = row.content->text().trimmed();
+        double fee = row.fee->value();
+        if (techId == 0 && cont.isEmpty() && fee == 0) continue;
+        q.prepare("INSERT INTO t_workorder_repair_item (workorder_id,item_type,repair_person,repair_content,fee) "
+                  "VALUES (:woid,:type,:person,:cont,:fee)");
+        q.bindValue(":woid",woid); q.bindValue(":type",row.type);
+        q.bindValue(":person",row.tech->currentText()); q.bindValue(":cont",cont); q.bindValue(":fee",fee);
+        DbManager::instance().executeQuery(q);
+        if (techId > 0) {
+            q.prepare("INSERT INTO t_technician_work_record (workorder_id,technician_id,item_type,work_content,fee) "
+                      "VALUES (:woid,:tid,:type,:cont,:fee)");
+            q.bindValue(":woid",woid); q.bindValue(":tid",techId);
+            q.bindValue(":type",row.type); q.bindValue(":cont",cont); q.bindValue(":fee",fee);
             DbManager::instance().executeQuery(q);
-            if (techId > 0) {
-                q.prepare("INSERT INTO t_technician_work_record (workorder_id,technician_id,item_type,work_content,fee) "
-                          "VALUES (:woid,:tid,:type,:cont,:fee)");
-                q.bindValue(":woid",woid); q.bindValue(":tid",techId);
-                q.bindValue(":type",types[i]); q.bindValue(":cont",cont); q.bindValue(":fee",fee);
-                DbManager::instance().executeQuery(q);
-            }
         }
     }
     q.prepare("INSERT INTO t_vehicle_transaction (vehicle_id,workorder_id,transaction_type,description,operator_id) "
@@ -915,7 +1164,7 @@ void FrontDeskPage::onCreateWorkOrder()
 
     QMessageBox::information(this,"派工成功",QString("工单 %1 已创建\n总费用: ¥%2").arg(orderNo).arg(total,0,'f',2));
     emit workOrderCreated(woid, orderNo);
-    onClearVehicle();
+    onClearVehicle();  // 内含 setState(STATE_SEARCH)
 }
 
 // ============================================================
@@ -929,15 +1178,12 @@ void FrontDeskPage::onPrintWorkOrder()
     connect(&pp, &QPrintPreviewDialog::paintRequested, [&](QPrinter *p) {
         QTextDocument doc;
         QString rows;
-        QStringList types = {"机电","钣金","喷漆"};
-        for (int i = 0; i < 3; i++) {
-            for (auto &row : m_repairCats[i].rows) {
-                QString tech = row.tech->currentText(), cont = row.content->text().trimmed();
-                double fee = row.fee->value();
-                if (tech.isEmpty() && cont.isEmpty() && fee==0) continue;
-                rows += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>¥%4</td></tr>")
-                        .arg(types[i],tech,cont).arg(fee,0,'f',2);
-            }
+        for (auto &row : m_allRows) {
+            QString tech = row.tech->currentText(), cont = row.content->text().trimmed();
+            double fee = row.fee->value();
+            if (tech.isEmpty() && cont.isEmpty() && fee==0) continue;
+            rows += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>¥%4</td></tr>")
+                    .arg(row.type, tech, cont).arg(fee, 0, 'f', 2);
         }
         double total = calcTotalFee();
         QString html = QString(
@@ -965,20 +1211,17 @@ QString FrontDeskPage::buildQuoteHtml()
     // ============ 1. 维修项目明细（机电/钣金/喷漆） ============
     QString repairRows;
     double laborTotal = 0;
-    QStringList types = {"机电","钣金","喷漆"};
     bool hasItems = false;
-    for (int i = 0; i < 3; i++) {
-        for (auto &row : m_repairCats[i].rows) {
-            QString tech = row.tech->currentText(), cont = row.content->text().trimmed();
-            double fee = row.fee->value();
-            if (tech.isEmpty() && cont.isEmpty() && fee == 0) continue;
-            hasItems = true;
-            laborTotal += fee;
-            repairRows += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td align='right'>¥%4</td></tr>")
-                    .arg(types[i], tech.isEmpty() ? "-" : tech,
-                         cont.isEmpty() ? "-" : cont)
-                    .arg(fee, 0, 'f', 2);
-        }
+    for (auto &row : m_allRows) {
+        QString tech = row.tech->currentText(), cont = row.content->text().trimmed();
+        double fee = row.fee->value();
+        if (tech.isEmpty() && cont.isEmpty() && fee == 0) continue;
+        hasItems = true;
+        laborTotal += fee;
+        repairRows += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td align='right'>¥%4</td></tr>")
+                .arg(row.type, tech.isEmpty() ? "-" : tech,
+                     cont.isEmpty() ? "-" : cont)
+                .arg(fee, 0, 'f', 2);
     }
 
     // ============ 2. 费用数据 ============
@@ -1129,7 +1372,7 @@ QString FrontDeskPage::buildQuoteHtml()
     .arg(F(m_dispVin->text()))                         // %4  VIN
     .arg(F(m_dispEngine->text()))                      // %5  发动机号
     .arg(sMileage)                                     // %6  公里数
-    .arg(F(sPurchase.isEmpty() ? m_dispPurchase->text() : sPurchase)) // %7  购车日期
+    .arg(F(sPurchase.isEmpty() ? m_dispPurchase->date().toString("yyyy-MM-dd") : sPurchase)) // %7  购车日期
     .arg(F(sOwner2.isEmpty() ? m_dispOwner->text() : sOwner2))       // %8  车主
     .arg(F(sPhone2.isEmpty() ? m_dispPhone->text() : sPhone2))       // %9  电话
     .arg(F(m_cmbAdvisor->currentText()))               // %10 顾问

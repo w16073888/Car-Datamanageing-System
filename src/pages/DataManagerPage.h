@@ -27,6 +27,7 @@ private:
     void setupUI();
     QString tableName() const;
     void setChineseHeaders();
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
     QComboBox *m_tableSelector;
     QTableView *m_tableView;

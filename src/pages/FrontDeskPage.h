@@ -26,6 +26,9 @@ class FrontDeskPage : public QWidget
     Q_OBJECT
 
 public:
+    // 界面状态：查找 → 录入(新车) → 派工
+    enum FrontDeskState { STATE_SEARCH, STATE_NEW_CAR, STATE_DISPATCH };
+
     explicit FrontDeskPage(QWidget *parent = nullptr);
     ~FrontDeskPage();
     void refreshData();
@@ -44,8 +47,12 @@ private slots:
     void onPrintWorkOrder();
     void onPrintQuote();
     void onPrintSettlement();
-    void onShowMaintenanceHistory();   // 查看维修历史
-    void onExportQuotePdf();           // 导出报价单PDF
+    void onShowMaintenanceHistory();
+    void onExportQuotePdf();
+    void onSaveNewCar();          // 新车录入 → 保存并锁定
+    void onCancelNewCar();        // 新车录入 → 返回查找
+    void onCancelDispatch();      // 派工 → 返回查找
+    void onSaveVehicleInfo();     // 保存车辆信息修改
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -60,35 +67,46 @@ private:
     double calcTotalFee();
     double calcRepairFee();
     void addRepairRow(int catIndex);
-    QString buildQuoteHtml();   // 构建报价单HTML内容
+    QString buildQuoteHtml();
+    void setState(FrontDeskState s);
+
+    // 当前状态
+    FrontDeskState m_state;
+
+    // ==================== 界面分区（按状态显隐） ====================
+    QGroupBox *m_searchGroup;     // 车辆查找
+    QGroupBox *m_infoGroup;       // 当前车辆信息
+    QGroupBox *m_newGroup;        // 新车录入
+    QGroupBox *m_dispatchGroup;   // 派工信息
+    QGroupBox *m_repairGroup;     // 报修内容
+    QGroupBox *m_feeGroup;        // 费用明细
 
     // ==================== 多字段搜索锁定区 ====================
-    QLineEdit   *m_sPlate, *m_sVin, *m_sEngine;    // 搜索
+    QLineEdit   *m_sPlate, *m_sVin, *m_sEngine;
     QLineEdit   *m_sOwner, *m_sPhone, *m_sModel;
-    QPushButton *m_btnLock, *m_btnUnlock;
-    QPushButton *m_btnMaintenanceHistory;     // 维修历史按钮
+    QPushButton *m_btnLock;
+    QPushButton *m_btnMaintenanceHistory;
     QLabel      *m_lblStatus;
-    QTimer      *m_searchTimer; // unused now, kept for ABI
+    QTimer      *m_searchTimer;
     int          m_lockedVid;
-
-    // 搜索结果暂存（选中前）
-    int          m_foundVid;        // >0 表示搜索结果
+    int          m_foundVid;
     QSet<QWidget*> m_ghostFields;
 
-    // ==================== 车辆信息展示（锁定后只读） ====================
-    QLabel   *m_dispPlate, *m_dispVin, *m_dispEngine;
-    QLabel   *m_dispModel, *m_dispOwner, *m_dispPhone;
-    QLabel   *m_dispAddress;
-    QComboBox   *m_dispColor, *m_dispFuel, *m_dispTrans;
-    QLabel      *m_dispPurchase;
-    QWidget     *m_infoGroup;
+    // ==================== 车辆信息展示（锁定后可编辑） ====================
+    QLineEdit *m_dispPlate, *m_dispVin, *m_dispEngine;
+    QLineEdit *m_dispModel, *m_dispOwner, *m_dispPhone;
+    QLineEdit *m_dispAddress;
+    QComboBox *m_dispColor, *m_dispFuel, *m_dispTrans;
+    QDateEdit *m_dispPurchase;
+    QPushButton *m_btnSaveVehicleInfo;
 
     // ==================== 新车录入 ====================
     QLineEdit   *m_nPlate, *m_nVin, *m_nEngine;
     QLineEdit   *m_nModel, *m_nOwner, *m_nPhone, *m_nAddress;
     QComboBox   *m_nColor, *m_nFuel, *m_nTrans;
     QDateEdit   *m_nPurchase;
-    QWidget     *m_newGroup;
+    QPushButton *m_btnSaveNewCar;
+    QPushButton *m_btnCancelNewCar;
 
     // ==================== 派工 ====================
     QLineEdit   *m_editOrderNo;
@@ -97,19 +115,24 @@ private:
     QTextEdit   *m_textContent;
     QDateEdit   *m_dateRepair, *m_dateEstimated;
     QComboBox   *m_cmbShift;
+    QPushButton *m_btnCancelDispatch;
 
-    // ==================== 报修内容（动态行） ====================
+    // ==================== 报修内容（动态行，多列布局） ====================
     struct ItemRow {
         QComboBox *tech;
         QLineEdit *content;
         QDoubleSpinBox *fee;
         QWidget *container;
+        QString type;   // "机电"/"钣金"/"喷漆"
     };
-    struct RepairCategory {
-        QVBoxLayout *rowsLayout;
-        QList<ItemRow> rows;
-    };
-    RepairCategory m_repairCats[3];
+    QList<ItemRow> m_allRows;
+    QScrollArea *m_repairScroll;
+    QWidget *m_repairColumns;
+    QHBoxLayout *m_columnsLayout;
+    static const int MAX_ROWS_PER_COLUMN = 5;
+
+    void addRepairRow(const QString &type);
+    void rebuildRepairLayout();
 
     QDoubleSpinBox *m_spinMat, *m_spinOther, *m_spinMgmt, *m_spinDep;
     QLabel         *m_lblTotal;

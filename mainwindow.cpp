@@ -8,6 +8,8 @@
 #include <QMessageBox>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QDialog>
+#include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -71,7 +73,7 @@ void MainWindow::setupPages()
     // 按 PAGE_xxx 枚举顺序创建所有页面
     m_pages[PAGE_EMPLOYEE]         = new EmployeePage;
     m_pages[PAGE_DATA_MANAGER]     = new DataManagerPage;
-    m_pages[PAGE_FRONT_DESK]       = new FrontDeskPage;
+    m_pages[PAGE_FRONT_DESK]       = new QWidget;  // 占位，前台工作台改为弹窗模式
     m_pages[PAGE_WAREHOUSE]        = new WarehousePage;
     m_pages[PAGE_SETTLEMENT]       = new SettlementPage;
     m_pages[PAGE_SETTLEMENT_QUERY] = new SettlementQueryPage;
@@ -93,23 +95,6 @@ void MainWindow::setupPages()
 
     for (int i = 0; i < PAGE_COUNT; i++) {
         m_stack->addWidget(m_pages[i]);
-    }
-
-    // ============================================================
-    // 业务流程：前台工作台车辆保存后跳转（保留信号连接）
-    // ============================================================
-    FrontDeskPage *frontDesk = qobject_cast<FrontDeskPage*>(m_pages[PAGE_FRONT_DESK]);
-    if (frontDesk) {
-        // FrontDeskPage 内部已经处理了完整流程，不再需要跳转
-        // 保留 signal 以供将来扩展
-        connect(frontDesk, &FrontDeskPage::workOrderCreated,
-                this, [this](int workorderId, const QString &orderNo) {
-            Q_UNUSED(workorderId)
-            Q_UNUSED(orderNo)
-            qDebug() << "[MainWindow] 工单已创建:" << orderNo;
-        });
-        connect(frontDesk, &FrontDeskPage::orderNoChanged,
-                this, &MainWindow::onFrontDeskOrderNoChanged);
     }
 }
 
@@ -169,7 +154,28 @@ void MainWindow::setupMenuBar()
     m_actFrontDesk = m_menuRepair->addAction("前台工作台");
     m_actFrontDesk->setStatusTip("车辆登记、派工、打印报价单/工单");
     connect(m_actFrontDesk, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_FRONT_DESK);
+        // 前台工作台以独立固定尺寸窗口打开
+        QDialog dlg(this);
+        dlg.setWindowTitle("前台工作台");
+        dlg.setFixedSize(1100, 620);
+        QVBoxLayout *l = new QVBoxLayout(&dlg);
+        l->setContentsMargins(0, 0, 0, 0);
+
+        FrontDeskPage *fd = new FrontDeskPage(&dlg);
+        l->addWidget(fd);
+
+        connect(fd, &FrontDeskPage::workOrderCreated,
+                this, [this](int workorderId, const QString &orderNo) {
+            Q_UNUSED(workorderId)
+            Q_UNUSED(orderNo)
+            qDebug() << "[MainWindow] 工单已创建:" << orderNo;
+        });
+        connect(fd, &FrontDeskPage::orderNoChanged,
+                this, &MainWindow::onFrontDeskOrderNoChanged);
+
+        dlg.exec();
+        // 弹窗关闭后清除工单号显示
+        m_orderNoLabel->setVisible(false);
     });
 
     m_menuRepair->addSeparator();
@@ -254,22 +260,11 @@ void MainWindow::switchToPage(int index)
     if (index >= 0 && index < PAGE_COUNT) {
         QWidget *target = m_pages[index];
 
-        // 离开前台工作台时隐藏工单号
-        if (m_currentPageIndex == PAGE_FRONT_DESK && index != PAGE_FRONT_DESK) {
-            m_orderNoLabel->setVisible(false);
-        }
-
         // 调用目标页面的refreshData()
         if (auto *p = qobject_cast<EmployeePage*>(target)) {
             p->refreshData();
         } else if (auto *p = qobject_cast<DataManagerPage*>(target)) {
             p->refreshData();
-        } else if (auto *p = qobject_cast<FrontDeskPage*>(target)) {
-            p->refreshData();
-            // 进入前台工作台时显示工单号
-            m_orderNoLabel->setText(
-                QString("  当前工单号：%1").arg(p->currentOrderNo()));
-            m_orderNoLabel->setVisible(true);
         } else if (auto *p = qobject_cast<WarehousePage*>(target)) {
             p->refreshData();
         } else if (auto *p = qobject_cast<SettlementPage*>(target)) {
@@ -309,11 +304,9 @@ void MainWindow::onVehicleSavedWithId(int vehicleId, const QString &plateNumber)
 
 void MainWindow::onFrontDeskOrderNoChanged(const QString &orderNo)
 {
-    if (m_currentPageIndex == PAGE_FRONT_DESK) {
-        m_orderNoLabel->setText(
-            QString("  当前工单号：%1").arg(orderNo));
-        m_orderNoLabel->setVisible(true);
-    }
+    m_orderNoLabel->setText(
+        QString("  当前工单号：%1").arg(orderNo));
+    m_orderNoLabel->setVisible(true);
 }
 
 void MainWindow::applyStyleSheet()
