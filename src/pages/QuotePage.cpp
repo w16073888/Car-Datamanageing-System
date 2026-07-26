@@ -23,6 +23,20 @@ QuotePage::QuotePage(QWidget *parent)
 
 QuotePage::~QuotePage() {}
 
+void QuotePage::refreshData()
+{
+    m_editOrderNo->clear();
+    m_lblOrderInfo->setText("请加载工单");
+    m_editPartName->clear();
+    m_editQuantity->setText("1");
+    m_editUnitPrice->clear();
+    m_lblLaborFee->setText("工时费：¥0.00");
+    m_lblMaterialTotal->setText("材料费：¥0.00");
+    m_lblGrandTotal->setText("总报价：¥0.00");
+    m_currentOrderId = 0;
+    m_model->setQuery(QSqlQuery());
+}
+
 void QuotePage::setupUI()
 {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);

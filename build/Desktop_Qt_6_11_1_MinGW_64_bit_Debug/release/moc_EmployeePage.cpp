@@ -40,21 +40,21 @@ template <> constexpr inline auto EmployeePage::qt_create_metaobjectdata<qt_meta
     namespace QMC = QtMocConstants;
     QtMocHelpers::StringRefStorage qt_stringData {
         "EmployeePage",
-        "onAdd",
-        "",
         "onEdit",
+        "",
         "onDelete",
-        "onResetPassword"
+        "onResetPassword",
+        "onRegisterEmployee"
     };
 
     QtMocHelpers::UintData qt_methods {
-        // Slot 'onAdd'
-        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
         // Slot 'onEdit'
-        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
         // Slot 'onDelete'
-        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
         // Slot 'onResetPassword'
+        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onRegisterEmployee'
         QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
@@ -79,10 +79,10 @@ void EmployeePage::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id
     auto *_t = static_cast<EmployeePage *>(_o);
     if (_c == QMetaObject::InvokeMetaMethod) {
         switch (_id) {
-        case 0: _t->onAdd(); break;
-        case 1: _t->onEdit(); break;
-        case 2: _t->onDelete(); break;
-        case 3: _t->onResetPassword(); break;
+        case 0: _t->onEdit(); break;
+        case 1: _t->onDelete(); break;
+        case 2: _t->onResetPassword(); break;
+        case 3: _t->onRegisterEmployee(); break;
         default: ;
         }
     }

@@ -10,6 +10,12 @@
 StockQueryPage::StockQueryPage(QWidget *parent) : QWidget(parent) { setupUI(); }
 StockQueryPage::~StockQueryPage() {}
 
+void StockQueryPage::refreshData()
+{
+    m_searchInput->clear();
+    onRefresh();
+}
+
 void StockQueryPage::setupUI()
 {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -65,7 +71,8 @@ void StockQueryPage::onSearch()
     }
     query.prepare("SELECT part_no AS '备件编号', name AS '备件名称', spec AS '规格', "
                   "stock AS '库存量', purchase_price AS '进货价', sale_price AS '销售价', "
-                  "supplier AS '供应商', warranty_period AS '质保期' "
+                  "supplier AS '供应商', warranty_period AS '质保期', "
+                  "IFNULL(applicable_model, '') AS '适用车型' "
                   "FROM t_parts WHERE part_no LIKE :kw OR name LIKE :kw2 ORDER BY id DESC");
     query.bindValue(":kw", "%" + kw + "%");
     query.bindValue(":kw2", "%" + kw + "%");
@@ -79,7 +86,8 @@ void StockQueryPage::onRefresh()
     QSqlQuery query(DbManager::instance().database());
     query.prepare("SELECT part_no AS '备件编号', name AS '备件名称', spec AS '规格', "
                   "stock AS '库存量', purchase_price AS '进货价', sale_price AS '销售价', "
-                  "supplier AS '供应商', warranty_period AS '质保期' "
+                  "supplier AS '供应商', warranty_period AS '质保期', "
+                  "IFNULL(applicable_model, '') AS '适用车型' "
                   "FROM t_parts ORDER BY id DESC LIMIT 200");
     DbManager::instance().executeQuery(query);
     m_model->setQuery(std::move(query));

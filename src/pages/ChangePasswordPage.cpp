@@ -19,6 +19,14 @@ ChangePasswordPage::~ChangePasswordPage()
 {
 }
 
+void ChangePasswordPage::refreshData()
+{
+    m_editOldPwd->clear();
+    m_editNewPwd->clear();
+    m_editConfirmPwd->clear();
+    m_lblStatus->setVisible(false);
+}
+
 void ChangePasswordPage::setupUI()
 {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -107,18 +115,23 @@ void ChangePasswordPage::onChange()
     }
 
     QString storedPwd = query.value(0).toString();
-    QString oldHash = QCryptographicHash::hash(oldPwd.toUtf8(), QCryptographicHash::Sha256).toHex();
 
-    if (storedPwd != oldHash) {
-        m_lblStatus->setText("⚠ 当前密码错误");
-        m_lblStatus->setVisible(true);
-        return;
+    // 支持明文和旧版SHA256哈希两种密码格式
+    if (storedPwd != oldPwd) {
+        // 明文不匹配时尝试兼容旧版SHA256哈希
+        QString oldHash = QCryptographicHash::hash(oldPwd.toUtf8(), QCryptographicHash::Sha256).toHex();
+        if (storedPwd == oldHash) {
+            // 旧版哈希匹配，无需额外操作
+        } else {
+            m_lblStatus->setText("⚠ 当前密码错误");
+            m_lblStatus->setVisible(true);
+            return;
+        }
     }
 
-    // 更新密码
-    QString newHash = QCryptographicHash::hash(newPwd.toUtf8(), QCryptographicHash::Sha256).toHex();
+    // 更新密码（明文存储）
     query.prepare("UPDATE t_employee SET password = :pwd WHERE id = :id");
-    query.bindValue(":pwd", newHash);
+    query.bindValue(":pwd", newPwd);
     query.bindValue(":id", userId);
 
     if (!DbManager::instance().executeQuery(query)) {

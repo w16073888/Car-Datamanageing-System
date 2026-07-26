@@ -12,6 +12,53 @@
 PurchasePage::PurchasePage(QWidget *parent) : QWidget(parent) { setupUI(); }
 PurchasePage::~PurchasePage() {}
 
+void PurchasePage::refreshData()
+{
+    m_editPartNo->clear();
+    m_editName->clear();
+    m_editSpec->clear();
+    m_spinQuantity->setValue(1);
+    m_spinPurchasePrice->setValue(0);
+    m_spinSalePrice->setValue(0);
+    m_editSupplier->clear();
+    m_editWarranty->clear();
+    m_cmbApplicableModel->setCurrentIndex(0);
+    loadApplicableModelOptions();
+}
+
+void PurchasePage::loadApplicableModelOptions()
+{
+    m_cmbApplicableModel->clear();
+    m_cmbApplicableModel->addItem("");
+    // 从已有车辆数据中加载车型选项
+    QSqlQuery query(DbManager::instance().database());
+    query.exec("SELECT DISTINCT CONCAT(IFNULL(brand,''), ' ', IFNULL(model,'')) "
+               "FROM t_vehicle "
+               "WHERE (brand IS NOT NULL AND brand != '') "
+               "   OR (model IS NOT NULL AND model != '') "
+               "ORDER BY brand, model");
+    while (query.next()) {
+        QString val = query.value(0).toString().trimmed();
+        if (!val.isEmpty()) {
+            m_cmbApplicableModel->addItem(val);
+        }
+    }
+    // 也从已有的适用车型中加载
+    query.exec("SELECT DISTINCT applicable_model FROM t_parts "
+               "WHERE applicable_model IS NOT NULL AND applicable_model != '' "
+               "ORDER BY applicable_model");
+    QSet<QString> existing;
+    for (int i = 0; i < m_cmbApplicableModel->count(); i++)
+        existing.insert(m_cmbApplicableModel->itemText(i));
+    while (query.next()) {
+        QString val = query.value(0).toString().trimmed();
+        if (!val.isEmpty() && !existing.contains(val)) {
+            m_cmbApplicableModel->addItem(val);
+            existing.insert(val);
+        }
+    }
+}
+
 void PurchasePage::setupUI()
 {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -62,6 +109,11 @@ void PurchasePage::setupUI()
     m_editWarranty->setPlaceholderText("如：12个月");
     form->addRow("质保期：", m_editWarranty);
 
+    m_cmbApplicableModel = new QComboBox;
+    m_cmbApplicableModel->setEditable(true);
+    m_cmbApplicableModel->setPlaceholderText("选择或输入适用车型");
+    form->addRow("适用车型：", m_cmbApplicableModel);
+
     mainLayout->addWidget(group);
 
     m_btnSave = new QPushButton("提交入库");
@@ -74,6 +126,7 @@ void PurchasePage::setupUI()
     mainLayout->addStretch();
 
     connect(m_btnSave, &QPushButton::clicked, this, &PurchasePage::onSave);
+    loadApplicableModelOptions();
 }
 
 void PurchasePage::onSave()
@@ -91,6 +144,7 @@ void PurchasePage::onSave()
     double salePrice = m_spinSalePrice->value();
     QString supplier = m_editSupplier->text().trimmed();
     QString warranty = m_editWarranty->text().trimmed();
+    QString applicableModel = m_cmbApplicableModel->currentText().trimmed();
 
     DbManager::instance().beginTransaction();
 
@@ -106,18 +160,20 @@ void PurchasePage::onSave()
         int existingId = query.value(0).toInt();
         int existingStock = query.value(1).toInt();
         query.prepare("UPDATE t_parts SET stock = :stock, purchase_price = :pp, "
-                      "sale_price = :sp, supplier = :sup, spec = :spec WHERE id = :id");
+                      "sale_price = :sp, supplier = :sup, spec = :spec, "
+                      "applicable_model = :appmodel WHERE id = :id");
         query.bindValue(":stock", existingStock + qty);
         query.bindValue(":pp", purchasePrice);
         query.bindValue(":sp", salePrice);
         query.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
         query.bindValue(":spec", spec.isEmpty() ? QVariant() : spec);
+        query.bindValue(":appmodel", applicableModel.isEmpty() ? QVariant() : applicableModel);
         query.bindValue(":id", existingId);
     } else {
         // 新建备件
         query.prepare("INSERT INTO t_parts (part_no, name, spec, stock, purchase_price, "
-                      "sale_price, supplier, warranty_period) "
-                      "VALUES (:no, :name, :spec, :stock, :pp, :sp, :sup, :warr)");
+                      "sale_price, supplier, warranty_period, applicable_model) "
+                      "VALUES (:no, :name, :spec, :stock, :pp, :sp, :sup, :warr, :appmodel)");
         query.bindValue(":no", partNo);
         query.bindValue(":name", name);
         query.bindValue(":spec", spec.isEmpty() ? QVariant() : spec);
@@ -126,6 +182,7 @@ void PurchasePage::onSave()
         query.bindValue(":sp", salePrice);
         query.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
         query.bindValue(":warr", warranty.isEmpty() ? QVariant() : warranty);
+        query.bindValue(":appmodel", applicableModel.isEmpty() ? QVariant() : applicableModel);
     }
 
     if (!DbManager::instance().executeQuery(query)) {
@@ -159,13 +216,5 @@ void PurchasePage::onSave()
     QMessageBox::information(this, "入库成功",
         QString("备件 %1 (%2) 入库 %3 个").arg(partNo, name).arg(qty));
 
-    // 清空
-    m_editPartNo->clear();
-    m_editName->clear();
-    m_editSpec->clear();
-    m_spinQuantity->setValue(1);
-    m_spinPurchasePrice->setValue(0);
-    m_spinSalePrice->setValue(0);
-    m_editSupplier->clear();
-    m_editWarranty->clear();
+    refreshData();
 }

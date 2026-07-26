@@ -7,12 +7,10 @@
 #include <QMenu>
 #include <QAction>
 #include <QCloseEvent>
+#include <QLabel>
 
 #include "pages/EmployeePage.h"
 #include "pages/DataManagerPage.h"
-#include "pages/VehiclePage.h"
-#include "pages/VehicleQueryPage.h"
-#include "pages/WorkOrderPage.h"
 #include "pages/QuotePage.h"
 #include "pages/PurchasePage.h"
 #include "pages/InventoryOutPage.h"
@@ -30,6 +28,8 @@
 #include "pages/OutboundReportPage.h"
 #include "pages/DashboardPage.h"
 #include "pages/ChangePasswordPage.h"
+#include "pages/FrontDeskPage.h"
+#include "pages/WarehousePage.h"
 
 class MainWindow : public QMainWindow
 {
@@ -42,27 +42,29 @@ public:
 protected:
     void closeEvent(QCloseEvent *event) override;
 
+private slots:
+    void onVehicleSavedWithId(int vehicleId, const QString &plateNumber);
+
 private:
     void setupMenuBar();
     void setupPages();
     void applyStyleSheet();
     void switchToPage(int index);
 
-    // 页面枚举
+    // 页面枚举 — 只保留独立页面，统一入口由 FrontDeskPage / WarehousePage 提供
     enum PageIndex {
         PAGE_EMPLOYEE = 0,
         PAGE_DATA_MANAGER,
-        PAGE_VEHICLE,
-        PAGE_VEHICLE_QUERY,
-        PAGE_WORK_ORDER,
-        PAGE_QUOTE,
+        PAGE_FRONT_DESK,        // 前台工作台（车辆登记+派工+打印报价单/工单）
+        PAGE_WAREHOUSE,         // 库房工作台（备件领取+材料结算+采购入库+库存查询+退库退货）
+        PAGE_SETTLEMENT,        // 工单结算
+        PAGE_SETTLEMENT_QUERY,
+        PAGE_QUOTE,             // 报价管理
         PAGE_PURCHASE,
         PAGE_INVENTORY_OUT,
         PAGE_PARTS_RETURN,
         PAGE_PURCHASE_RETURN,
         PAGE_STOCK_QUERY,
-        PAGE_SETTLEMENT,
-        PAGE_SETTLEMENT_QUERY,
         PAGE_FINANCE,
         PAGE_SERVICE_REMINDER,
         PAGE_CUSTOMER_VISIT,
@@ -90,25 +92,21 @@ private:
     QAction *m_actChangePwd;
     QAction *m_actLogout;
 
-    // 业务报修
+    // 业务报修（前台）
     QMenu *m_menuRepair;
-    QAction *m_actVehicleReg;
-    QAction *m_actVehicleQuery;
-    QAction *m_actWorkOrder;
-    QAction *m_actQuote;
+    QAction *m_actFrontDesk;
 
-    // 库房管理
+    // 库房管理（仓库）
     QMenu *m_menuWarehouse;
-    QAction *m_actPurchase;
-    QAction *m_actInventoryOut;
-    QAction *m_actPartsReturn;
-    QAction *m_actPurchaseReturn;
-    QAction *m_actStockQuery;
+    QAction *m_actWarehouse;
 
     // 结算管理
     QMenu *m_menuSettlement;
     QAction *m_actSettlement;
     QAction *m_actSettlementQuery;
+
+    // 报价管理
+    QAction *m_actQuote;
 
     // 财务管理
     QMenu *m_menuFinance;

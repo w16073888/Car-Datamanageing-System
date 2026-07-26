@@ -104,3 +104,9 @@ void SettlementQueryPage::onDateRangeChanged(const QDate &start, const QDate &en
     Q_UNUSED(end)
     onQuery();
 }
+
+void SettlementQueryPage::refreshData()
+{
+    m_editOrderNo->clear();
+    onQuery();
+}

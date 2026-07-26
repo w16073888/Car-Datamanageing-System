@@ -13,6 +13,7 @@ class ChangePasswordPage : public QWidget
 public:
     explicit ChangePasswordPage(QWidget *parent = nullptr);
     ~ChangePasswordPage();
+    void refreshData();
 
 private slots:
     void onChange();

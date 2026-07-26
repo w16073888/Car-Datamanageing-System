@@ -15,6 +15,7 @@ class StockQueryPage : public QWidget
 public:
     explicit StockQueryPage(QWidget *parent = nullptr);
     ~StockQueryPage();
+    void refreshData();
 
 private slots:
     void onSearch();

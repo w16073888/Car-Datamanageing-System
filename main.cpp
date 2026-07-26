@@ -21,8 +21,8 @@ int main(int argc, char *argv[])
             "127.0.0.1",    // MySQL主机
             3306,           // 端口
             "garagedb",     // 数据库名称（需先通过sql/init.sql创建）
-            "root",         // 用户名
-            "root"          // 密码
+            "test",         // 用户名
+            "test"          // 密码
         )) {
         QMessageBox::critical(nullptr, "数据库连接失败",
             "无法连接到MySQL数据库！\n\n"

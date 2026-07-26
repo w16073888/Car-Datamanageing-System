@@ -10,7 +10,6 @@
 #include <QSqlError>
 #include <QSqlRecord>
 #include <QInputDialog>
-#include <QCryptographicHash>
 
 EmployeePage::EmployeePage(QWidget *parent)
     : QWidget(parent)
@@ -35,26 +34,30 @@ void EmployeePage::setupUI()
     // 按钮工具栏
     QHBoxLayout *toolbar = new QHBoxLayout;
 
-    m_btnAdd = new QPushButton("添加员工");
     m_btnEdit = new QPushButton("编辑");
     m_btnDelete = new QPushButton("删除");
     m_btnResetPwd = new QPushButton("重置密码");
+    m_btnRegister = new QPushButton("注册新员工");
     m_btnRefresh = new QPushButton("刷新");
 
     QString btnStyle =
         "QPushButton { padding: 6px 14px; border: 1px solid #bdc3c7;"
         "  border-radius: 4px; background-color: #ecf0f1; font-size: 13px; }"
         "QPushButton:hover { background-color: #3498db; color: white; }";
-    m_btnAdd->setStyleSheet(btnStyle);
     m_btnEdit->setStyleSheet(btnStyle);
     m_btnDelete->setStyleSheet(btnStyle);
     m_btnResetPwd->setStyleSheet(btnStyle);
     m_btnRefresh->setStyleSheet(btnStyle);
 
-    toolbar->addWidget(m_btnAdd);
+    m_btnRegister->setStyleSheet(
+        "QPushButton { padding: 6px 14px; border: none; border-radius: 4px;"
+        "  background-color: #27ae60; color: white; font-size: 13px; font-weight: bold; }"
+        "QPushButton:hover { background-color: #219a52; }");
+
     toolbar->addWidget(m_btnEdit);
     toolbar->addWidget(m_btnDelete);
     toolbar->addWidget(m_btnResetPwd);
+    toolbar->addWidget(m_btnRegister);
     toolbar->addWidget(m_btnRefresh);
     toolbar->addStretch();
     mainLayout->addLayout(toolbar);
@@ -78,6 +81,7 @@ void EmployeePage::setupUI()
     m_model->setEditStrategy(QSqlTableModel::OnManualSubmit);
     m_model->setHeaderData(1, Qt::Horizontal, "工号");
     m_model->setHeaderData(2, Qt::Horizontal, "姓名");
+    m_model->setHeaderData(3, Qt::Horizontal, "密码");
     m_model->setHeaderData(4, Qt::Horizontal, "职位");
     m_model->setHeaderData(5, Qt::Horizontal, "电话");
     m_model->setHeaderData(6, Qt::Horizontal, "创建时间");
@@ -85,15 +89,14 @@ void EmployeePage::setupUI()
     m_model->setSort(0, Qt::AscendingOrder);
     m_tableView->setModel(m_model);
     m_tableView->setColumnHidden(0, true);   // id
-    m_tableView->setColumnHidden(3, true);   // password
     m_tableView->setColumnHidden(7, true);   // updated_at
     m_tableView->setColumnHidden(8, true);   // is_active
 
     // 信号
-    connect(m_btnAdd, &QPushButton::clicked, this, &EmployeePage::onAdd);
     connect(m_btnEdit, &QPushButton::clicked, this, &EmployeePage::onEdit);
     connect(m_btnDelete, &QPushButton::clicked, this, &EmployeePage::onDelete);
     connect(m_btnResetPwd, &QPushButton::clicked, this, &EmployeePage::onResetPassword);
+    connect(m_btnRegister, &QPushButton::clicked, this, &EmployeePage::onRegisterEmployee);
     connect(m_btnRefresh, &QPushButton::clicked, this, &EmployeePage::refreshData);
 }
 
@@ -101,76 +104,6 @@ void EmployeePage::refreshData()
 {
     m_model->select();
     m_tableView->resizeColumnsToContents();
-}
-
-void EmployeePage::onAdd()
-{
-    // 简单添加——打开输入对话框收集信息
-    // 实际生产环境应使用专用表单对话框
-    QDialog dlg(this);
-    dlg.setWindowTitle("添加员工");
-    dlg.setFixedSize(350, 350);
-
-    QFormLayout *form = new QFormLayout(&dlg);
-
-    QLineEdit *editEmpId = new QLineEdit;
-    editEmpId->setPlaceholderText("工号");
-    form->addRow("工号 *：", editEmpId);
-
-    QLineEdit *editName = new QLineEdit;
-    editName->setPlaceholderText("姓名");
-    form->addRow("姓名 *：", editName);
-
-    QLineEdit *editPwd = new QLineEdit;
-    editPwd->setEchoMode(QLineEdit::Password);
-    editPwd->setPlaceholderText("初始密码");
-    form->addRow("密码 *：", editPwd);
-
-    QComboBox *cmbPos = new QComboBox;
-    cmbPos->addItems({"经理", "前台", "库管", "客服"});
-    form->addRow("职位：", cmbPos);
-
-    QLineEdit *editPhone = new QLineEdit;
-    editPhone->setPlaceholderText("电话");
-    form->addRow("电话：", editPhone);
-
-    QDialogButtonBox *btnBox = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    form->addRow(btnBox);
-
-    connect(btnBox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-    connect(btnBox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-
-    if (dlg.exec() != QDialog::Accepted) return;
-
-    QString empId = editEmpId->text().trimmed();
-    QString name = editName->text().trimmed();
-    QString pwd = editPwd->text();
-    QString pos = cmbPos->currentText();
-    QString phone = editPhone->text().trimmed();
-
-    if (empId.isEmpty() || name.isEmpty() || pwd.isEmpty()) {
-        QMessageBox::warning(this, "错误", "请填写必填项（工号、姓名、密码）");
-        return;
-    }
-
-    QSqlQuery query(DbManager::instance().database());
-    query.prepare("INSERT INTO t_employee (employee_id, name, password, position, phone) "
-                  "VALUES (:eid, :name, :pwd, :pos, :phone)");
-    query.bindValue(":eid", empId);
-    query.bindValue(":name", name);
-    QByteArray hash = QCryptographicHash::hash(pwd.toUtf8(), QCryptographicHash::Sha256);
-    query.bindValue(":pwd", QString(hash.toHex()));
-    query.bindValue(":pos", pos);
-    query.bindValue(":phone", phone.isEmpty() ? QVariant() : phone);
-
-    if (!DbManager::instance().executeQuery(query)) {
-        QMessageBox::warning(this, "添加失败", DbManager::instance().lastError());
-        return;
-    }
-
-    refreshData();
-    QMessageBox::information(this, "成功", QString("员工 %1 (%2) 添加成功").arg(name, empId));
 }
 
 void EmployeePage::onEdit()
@@ -197,7 +130,7 @@ void EmployeePage::onEdit()
     form->addRow("姓名：", editName);
 
     QComboBox *cmbPos = new QComboBox;
-    cmbPos->addItems({"经理", "前台", "库管", "客服"});
+    cmbPos->addItems({"总经理", "服务顾问", "维修技师", "仓库管理员"});
     cmbPos->setCurrentText(position);
     form->addRow("职位：", cmbPos);
 
@@ -279,11 +212,9 @@ void EmployeePage::onResetPassword()
         QLineEdit::Password, "123456", &ok);
     if (!ok || newPwd.isEmpty()) return;
 
-    QByteArray hash = QCryptographicHash::hash(newPwd.toUtf8(), QCryptographicHash::Sha256);
-
     QSqlQuery query(DbManager::instance().database());
     query.prepare("UPDATE t_employee SET password = :pwd WHERE employee_id = :eid");
-    query.bindValue(":pwd", QString(hash.toHex()));
+    query.bindValue(":pwd", newPwd);
     query.bindValue(":eid", empId);
 
     if (!DbManager::instance().executeQuery(query)) {
@@ -292,4 +223,118 @@ void EmployeePage::onResetPassword()
     }
 
     QMessageBox::information(this, "成功", QString("员工 %1 密码已重置").arg(empId));
+}
+
+void EmployeePage::onRegisterEmployee()
+{
+    // 打开注册对话框，复用原有的注册逻辑
+    QDialog dlg(this);
+    dlg.setWindowTitle("注册新员工");
+    dlg.setFixedSize(380, 420);
+
+    QFormLayout *form = new QFormLayout(&dlg);
+    form->setSpacing(10);
+
+    QLineEdit *editEmpId = new QLineEdit;
+    editEmpId->setPlaceholderText("请输入工号");
+    form->addRow("工号 *：", editEmpId);
+
+    QLineEdit *editName = new QLineEdit;
+    editName->setPlaceholderText("请输入真实姓名");
+    form->addRow("姓名 *：", editName);
+
+    QLineEdit *editPwd = new QLineEdit;
+    editPwd->setEchoMode(QLineEdit::Password);
+    editPwd->setPlaceholderText("请输入密码（至少6位）");
+    form->addRow("密码 *：", editPwd);
+
+    QLineEdit *editConfirmPwd = new QLineEdit;
+    editConfirmPwd->setEchoMode(QLineEdit::Password);
+    editConfirmPwd->setPlaceholderText("请再次输入密码");
+    form->addRow("确认密码 *：", editConfirmPwd);
+
+    QComboBox *cmbPos = new QComboBox;
+    cmbPos->addItems({"总经理", "服务顾问", "维修技师", "仓库管理员"});
+    form->addRow("职位 *：", cmbPos);
+
+    QLineEdit *editPhone = new QLineEdit;
+    editPhone->setPlaceholderText("请输入手机号码");
+    form->addRow("联系电话：", editPhone);
+
+    // 错误提示
+    QLabel *errorLabel = new QLabel;
+    errorLabel->setStyleSheet("color: red; font-size: 13px;");
+    errorLabel->setVisible(false);
+    form->addRow(errorLabel);
+
+    QDialogButtonBox *btnBox = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    btnBox->button(QDialogButtonBox::Ok)->setText("注册");
+    form->addRow(btnBox);
+
+    connect(btnBox, &QDialogButtonBox::accepted, &dlg, [&]() {
+        // 表单校验
+        QString empId = editEmpId->text().trimmed();
+        QString name = editName->text().trimmed();
+        QString password = editPwd->text();
+        QString confirmPwd = editConfirmPwd->text();
+        QString position = cmbPos->currentText();
+        QString phone = editPhone->text().trimmed();
+
+        if (empId.isEmpty() || name.isEmpty() || password.isEmpty() || confirmPwd.isEmpty()) {
+            errorLabel->setText("⚠ 请填写所有必填项（带*号）");
+            errorLabel->setVisible(true);
+            return;
+        }
+
+        if (password.length() < 6) {
+            errorLabel->setText("⚠ 密码长度不能少于6位");
+            errorLabel->setVisible(true);
+            return;
+        }
+
+        if (password != confirmPwd) {
+            errorLabel->setText("⚠ 两次密码输入不一致");
+            errorLabel->setVisible(true);
+            return;
+        }
+
+        errorLabel->setVisible(false);
+
+        // 检查工号是否已存在
+        QSqlQuery checkQuery(DbManager::instance().database());
+        checkQuery.prepare("SELECT COUNT(*) FROM t_employee WHERE employee_id = :eid");
+        checkQuery.bindValue(":eid", empId);
+        DbManager::instance().executeQuery(checkQuery);
+        if (checkQuery.next() && checkQuery.value(0).toInt() > 0) {
+            errorLabel->setText("⚠ 该工号已被注册");
+            errorLabel->setVisible(true);
+            return;
+        }
+
+        // 插入新员工
+        QSqlQuery query(DbManager::instance().database());
+        query.prepare("INSERT INTO t_employee (employee_id, name, password, position, phone) "
+                      "VALUES (:eid, :name, :pwd, :pos, :phone)");
+        query.bindValue(":eid", empId);
+        query.bindValue(":name", name);
+        query.bindValue(":pwd", password);
+        query.bindValue(":pos", position);
+        query.bindValue(":phone", phone.isEmpty() ? QVariant() : phone);
+
+        if (!DbManager::instance().executeQuery(query)) {
+            errorLabel->setText("⚠ 注册失败：" + DbManager::instance().lastError());
+            errorLabel->setVisible(true);
+            return;
+        }
+
+        QMessageBox::information(&dlg, "注册成功",
+            QString("员工 %1 (%2) 注册成功！").arg(name, empId));
+        dlg.accept();
+    });
+    connect(btnBox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    if (dlg.exec() == QDialog::Accepted) {
+        refreshData();
+    }
 }

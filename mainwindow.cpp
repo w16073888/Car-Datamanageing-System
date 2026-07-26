@@ -13,13 +13,11 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     // ============================================================
-    // 窗口基本属性 — 固定 1280x720，禁止最大化/缩放
+    // 窗口基本属性
     // ============================================================
     setWindowTitle("汽修4S店综合管理系统");
-    setFixedSize(1280, 720);
-    setWindowFlags(windowFlags() & ~Qt::WindowMaximizeButtonHint);
-    // 移除 Qt::WindowMaximizeButtonHint 和 Qt::WindowMinimizeButtonHint 保持干净
-    setWindowFlags(windowFlags() & ~Qt::WindowMinimizeButtonHint);
+    resize(1280, 720);
+    setMinimumSize(960, 540);
 
     // 堆栈容器
     m_stack = new QStackedWidget(this);
@@ -68,17 +66,16 @@ void MainWindow::setupPages()
     // 按 PAGE_xxx 枚举顺序创建所有页面
     m_pages[PAGE_EMPLOYEE]         = new EmployeePage;
     m_pages[PAGE_DATA_MANAGER]     = new DataManagerPage;
-    m_pages[PAGE_VEHICLE]          = new VehiclePage;
-    m_pages[PAGE_VEHICLE_QUERY]    = new VehicleQueryPage;
-    m_pages[PAGE_WORK_ORDER]       = new WorkOrderPage;
+    m_pages[PAGE_FRONT_DESK]       = new FrontDeskPage;
+    m_pages[PAGE_WAREHOUSE]        = new WarehousePage;
+    m_pages[PAGE_SETTLEMENT]       = new SettlementPage;
+    m_pages[PAGE_SETTLEMENT_QUERY] = new SettlementQueryPage;
     m_pages[PAGE_QUOTE]            = new QuotePage;
     m_pages[PAGE_PURCHASE]         = new PurchasePage;
     m_pages[PAGE_INVENTORY_OUT]    = new InventoryOutPage;
     m_pages[PAGE_PARTS_RETURN]     = new PartsReturnPage;
     m_pages[PAGE_PURCHASE_RETURN]  = new PurchaseReturnPage;
     m_pages[PAGE_STOCK_QUERY]      = new StockQueryPage;
-    m_pages[PAGE_SETTLEMENT]       = new SettlementPage;
-    m_pages[PAGE_SETTLEMENT_QUERY] = new SettlementQueryPage;
     m_pages[PAGE_FINANCE]          = new FinancePage;
     m_pages[PAGE_SERVICE_REMINDER] = new ServiceReminderPage;
     m_pages[PAGE_CUSTOMER_VISIT]   = new CustomerVisitPage;
@@ -91,6 +88,21 @@ void MainWindow::setupPages()
 
     for (int i = 0; i < PAGE_COUNT; i++) {
         m_stack->addWidget(m_pages[i]);
+    }
+
+    // ============================================================
+    // 业务流程：前台工作台车辆保存后跳转（保留信号连接）
+    // ============================================================
+    FrontDeskPage *frontDesk = qobject_cast<FrontDeskPage*>(m_pages[PAGE_FRONT_DESK]);
+    if (frontDesk) {
+        // FrontDeskPage 内部已经处理了完整流程，不再需要跳转
+        // 保留 signal 以供将来扩展
+        connect(frontDesk, &FrontDeskPage::workOrderCreated,
+                this, [this](int workorderId, const QString &orderNo) {
+            Q_UNUSED(workorderId)
+            Q_UNUSED(orderNo)
+            qDebug() << "[MainWindow] 工单已创建:" << orderNo;
+        });
     }
 }
 
@@ -108,7 +120,7 @@ void MainWindow::setupMenuBar()
     );
 
     // ============================================================
-    // 1. 系统维护
+    // 1. 系统维护（所有角色可用）
     // ============================================================
     m_menuSystem = m_menuBar->addMenu("系统维护");
 
@@ -143,26 +155,17 @@ void MainWindow::setupMenuBar()
     });
 
     // ============================================================
-    // 2. 业务报修
+    // 2. 前台业务
     // ============================================================
-    m_menuRepair = m_menuBar->addMenu("业务报修");
+    m_menuRepair = m_menuBar->addMenu("前台业务");
 
-    m_actVehicleReg = m_menuRepair->addAction("车辆登记");
-    connect(m_actVehicleReg, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_VEHICLE);
-    });
-
-    m_actVehicleQuery = m_menuRepair->addAction("车辆查询");
-    connect(m_actVehicleQuery, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_VEHICLE_QUERY);
+    m_actFrontDesk = m_menuRepair->addAction("前台工作台");
+    m_actFrontDesk->setStatusTip("车辆登记、派工、打印报价单/工单");
+    connect(m_actFrontDesk, &QAction::triggered, this, [this]() {
+        switchToPage(PAGE_FRONT_DESK);
     });
 
     m_menuRepair->addSeparator();
-
-    m_actWorkOrder = m_menuRepair->addAction("报修派工");
-    connect(m_actWorkOrder, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_WORK_ORDER);
-    });
 
     m_actQuote = m_menuRepair->addAction("报价管理");
     connect(m_actQuote, &QAction::triggered, this, [this]() {
@@ -174,29 +177,10 @@ void MainWindow::setupMenuBar()
     // ============================================================
     m_menuWarehouse = m_menuBar->addMenu("库房管理");
 
-    m_actPurchase = m_menuWarehouse->addAction("采购入库");
-    connect(m_actPurchase, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_PURCHASE);
-    });
-
-    m_actInventoryOut = m_menuWarehouse->addAction("维修出库");
-    connect(m_actInventoryOut, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_INVENTORY_OUT);
-    });
-
-    m_actPartsReturn = m_menuWarehouse->addAction("备件退库");
-    connect(m_actPartsReturn, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_PARTS_RETURN);
-    });
-
-    m_actPurchaseReturn = m_menuWarehouse->addAction("采购退货");
-    connect(m_actPurchaseReturn, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_PURCHASE_RETURN);
-    });
-
-    m_actStockQuery = m_menuWarehouse->addAction("库存查询");
-    connect(m_actStockQuery, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_STOCK_QUERY);
+    m_actWarehouse = m_menuWarehouse->addAction("库房工作台");
+    m_actWarehouse->setStatusTip("备件领取、材料结算/提单、采购入库、库存查询、退库退货");
+    connect(m_actWarehouse, &QAction::triggered, this, [this]() {
+        switchToPage(PAGE_WAREHOUSE);
     });
 
     // ============================================================
@@ -218,52 +202,40 @@ void MainWindow::setupMenuBar()
     // 5. 财务管理
     // ============================================================
     m_menuFinance = m_menuBar->addMenu("财务管理");
-
     m_actFinance = m_menuFinance->addAction("收入统计 / 成本统计 / 利润分析");
     connect(m_actFinance, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_FINANCE);
     });
 
-    // ============================================================
-    // 6. 服务跟踪
-    // ============================================================
+    // 服务跟踪
     m_menuService = m_menuBar->addMenu("服务跟踪");
-
     m_actServiceReminder = m_menuService->addAction("保养提醒");
     connect(m_actServiceReminder, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_SERVICE_REMINDER);
     });
-
     m_actCustomerVisit = m_menuService->addAction("客户回访");
     connect(m_actCustomerVisit, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_CUSTOMER_VISIT);
     });
-
     m_actExport = m_menuService->addAction("导出档案");
     connect(m_actExport, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_EXPORT);
     });
 
-    // ============================================================
-    // 7. 报表查询
-    // ============================================================
+    // 报表查询
     m_menuReport = m_menuBar->addMenu("报表查询");
-
     m_actBusinessReport = m_menuReport->addAction("业务流水");
     connect(m_actBusinessReport, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_BUSINESS_REPORT);
     });
-
     m_actInboundReport = m_menuReport->addAction("入库报表");
     connect(m_actInboundReport, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_INBOUND_REPORT);
     });
-
     m_actOutboundReport = m_menuReport->addAction("出库报表");
     connect(m_actOutboundReport, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_OUTBOUND_REPORT);
     });
-
     m_actDashboard = m_menuReport->addAction("经营看板");
     connect(m_actDashboard, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_DASHBOARD);
@@ -273,10 +245,49 @@ void MainWindow::setupMenuBar()
 void MainWindow::switchToPage(int index)
 {
     if (index >= 0 && index < PAGE_COUNT) {
+        QWidget *target = m_pages[index];
+
+        // 调用目标页面的refreshData()
+        if (auto *p = qobject_cast<EmployeePage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<DataManagerPage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<FrontDeskPage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<WarehousePage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<SettlementPage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<SettlementQueryPage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<QuotePage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<PurchasePage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<InventoryOutPage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<StockQueryPage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<ChangePasswordPage*>(target)) {
+            p->refreshData();
+        }
+        // 其他页面没有refreshData或不需要刷新
+
         m_stack->setCurrentIndex(index);
         setWindowTitle(QString("汽修4S店综合管理系统 — %1")
                       .arg(m_menuBar->activeAction() ? m_menuBar->activeAction()->text() : ""));
     }
+}
+
+// ============================================================
+// 车辆登记保存后的回调（保留向后兼容）
+// ============================================================
+
+void MainWindow::onVehicleSavedWithId(int vehicleId, const QString &plateNumber)
+{
+    Q_UNUSED(vehicleId)
+    Q_UNUSED(plateNumber)
+    // FrontDeskPage 内部已处理完整流程
 }
 
 void MainWindow::applyStyleSheet()

@@ -16,6 +16,7 @@ class SettlementQueryPage : public QWidget
 public:
     explicit SettlementQueryPage(QWidget *parent = nullptr);
     ~SettlementQueryPage();
+    void refreshData();
 
 private slots:
     void onQuery();

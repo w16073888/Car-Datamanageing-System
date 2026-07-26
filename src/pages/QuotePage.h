@@ -16,6 +16,7 @@ class QuotePage : public QWidget
 public:
     explicit QuotePage(QWidget *parent = nullptr);
     ~QuotePage();
+    void refreshData();
 
 private slots:
     void onLoadOrder();

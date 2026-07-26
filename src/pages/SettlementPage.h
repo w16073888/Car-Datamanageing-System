@@ -15,29 +15,36 @@ class SettlementPage : public QWidget
 public:
     explicit SettlementPage(QWidget *parent = nullptr);
     ~SettlementPage();
+    void refreshData();
 
 private slots:
     void onLoadOrder();
+    void onNotifyWarehouse();
     void onSettle();
-    void onPrint();
+    void onPrintSettle();
+    void onPrintQuote();
 
 private:
     void setupUI();
+    void loadOrderDetail();
 
     QLineEdit *m_editOrderNo;
     QPushButton *m_btnLoad;
+    QPushButton *m_btnNotifyWH;
+    QPushButton *m_btnSettle;
+    QPushButton *m_btnPrintSettle;
+    QPushButton *m_btnPrintQuote;
     QLabel *m_lblOrderInfo;
 
-    // 工单明细
     QTableView *m_tableView;
     QSqlQueryModel *m_model;
 
     QLabel *m_lblLaborFee;
     QLabel *m_lblMaterialFee;
+    QLabel *m_lblOtherFee;
+    QLabel *m_lblManagementFee;
+    QLabel *m_lblDeposit;
     QLabel *m_lblTotal;
-
-    QPushButton *m_btnSettle;
-    QPushButton *m_btnPrint;
 
     int m_currentOrderId = 0;
 };

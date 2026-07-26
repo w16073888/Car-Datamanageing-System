@@ -17,17 +17,16 @@ SOURCES += \
     src/dialogs/LoginDialog.cpp \
     src/pages/EmployeePage.cpp \
     src/pages/DataManagerPage.cpp \
-    src/pages/VehiclePage.cpp \
-    src/pages/VehicleQueryPage.cpp \
-    src/pages/WorkOrderPage.cpp \
+    src/pages/FrontDeskPage.cpp \
+    src/pages/WarehousePage.cpp \
     src/pages/QuotePage.cpp \
+    src/pages/SettlementPage.cpp \
+    src/pages/SettlementQueryPage.cpp \
     src/pages/PurchasePage.cpp \
     src/pages/InventoryOutPage.cpp \
     src/pages/PartsReturnPage.cpp \
     src/pages/PurchaseReturnPage.cpp \
     src/pages/StockQueryPage.cpp \
-    src/pages/SettlementPage.cpp \
-    src/pages/SettlementQueryPage.cpp \
     src/pages/FinancePage.cpp \
     src/pages/ServiceReminderPage.cpp \
     src/pages/CustomerVisitPage.cpp \
@@ -46,17 +45,16 @@ HEADERS += \
     src/dialogs/LoginDialog.h \
     src/pages/EmployeePage.h \
     src/pages/DataManagerPage.h \
-    src/pages/VehiclePage.h \
-    src/pages/VehicleQueryPage.h \
-    src/pages/WorkOrderPage.h \
+    src/pages/FrontDeskPage.h \
+    src/pages/WarehousePage.h \
     src/pages/QuotePage.h \
+    src/pages/SettlementPage.h \
+    src/pages/SettlementQueryPage.h \
     src/pages/PurchasePage.h \
     src/pages/InventoryOutPage.h \
     src/pages/PartsReturnPage.h \
     src/pages/PurchaseReturnPage.h \
     src/pages/StockQueryPage.h \
-    src/pages/SettlementPage.h \
-    src/pages/SettlementQueryPage.h \
     src/pages/FinancePage.h \
     src/pages/ServiceReminderPage.h \
     src/pages/CustomerVisitPage.h \

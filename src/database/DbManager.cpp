@@ -40,7 +40,7 @@ bool DbManager::connectToDatabase(const QString &host, int port,
     m_db.setDatabaseName(dbName);
     m_db.setUserName(user);
     m_db.setPassword(password);
-    m_db.setConnectOptions("MYSQL_OPT_RECONNECT=1;MYSQL_OPT_CONNECT_TIMEOUT=5");
+    m_db.setConnectOptions("MYSQL_OPT_CONNECT_TIMEOUT=5");
 
     if (!m_db.open()) {
         m_lastError = m_db.lastError().text();

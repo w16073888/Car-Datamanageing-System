@@ -16,6 +16,7 @@ class InventoryOutPage : public QWidget
 public:
     explicit InventoryOutPage(QWidget *parent = nullptr);
     ~InventoryOutPage();
+    void refreshData();
 
 private slots:
     void onSearchPart();

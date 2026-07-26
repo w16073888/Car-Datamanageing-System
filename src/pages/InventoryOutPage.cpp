@@ -14,6 +14,16 @@
 InventoryOutPage::InventoryOutPage(QWidget *parent) : QWidget(parent) { setupUI(); }
 InventoryOutPage::~InventoryOutPage() {}
 
+void InventoryOutPage::refreshData()
+{
+    m_editOrderNo->clear();
+    m_editSearchPart->clear();
+    m_lblStock->setText("库存：-");
+    m_spinQuantity->setValue(1);
+    m_selectedPartId = 0;
+    m_model->setQuery(QSqlQuery());
+}
+
 void InventoryOutPage::setupUI()
 {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);

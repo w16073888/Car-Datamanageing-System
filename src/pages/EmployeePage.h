@@ -20,20 +20,20 @@ public:
     void refreshData();
 
 private slots:
-    void onAdd();
     void onEdit();
     void onDelete();
     void onResetPassword();
+    void onRegisterEmployee();
 
 private:
     void setupUI();
 
     QTableView *m_tableView;
     QSqlTableModel *m_model;
-    QPushButton *m_btnAdd;
     QPushButton *m_btnEdit;
     QPushButton *m_btnDelete;
     QPushButton *m_btnResetPwd;
+    QPushButton *m_btnRegister;
     QPushButton *m_btnRefresh;
 };
 

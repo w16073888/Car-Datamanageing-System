@@ -7,6 +7,7 @@
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QLabel>
+#include <QComboBox>
 
 class PurchasePage : public QWidget
 {
@@ -15,12 +16,14 @@ class PurchasePage : public QWidget
 public:
     explicit PurchasePage(QWidget *parent = nullptr);
     ~PurchasePage();
+    void refreshData();
 
 private slots:
     void onSave();
 
 private:
     void setupUI();
+    void loadApplicableModelOptions();
 
     QLineEdit *m_editPartNo;
     QLineEdit *m_editName;
@@ -30,6 +33,7 @@ private:
     QDoubleSpinBox *m_spinSalePrice;
     QLineEdit *m_editSupplier;
     QLineEdit *m_editWarranty;
+    QComboBox *m_cmbApplicableModel;
     QPushButton *m_btnSave;
 };
 
