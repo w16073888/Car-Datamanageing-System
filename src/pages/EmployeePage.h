@@ -27,6 +27,7 @@ private slots:
 
 private:
     void setupUI();
+    void ensurePositionColumn();  // 确保 position 列为正确的 ENUM 类型
 
     QTableView *m_tableView;
     QSqlTableModel *m_model;

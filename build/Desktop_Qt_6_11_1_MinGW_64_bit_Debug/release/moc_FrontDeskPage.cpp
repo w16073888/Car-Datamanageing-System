@@ -44,6 +44,7 @@ template <> constexpr inline auto FrontDeskPage::qt_create_metaobjectdata<qt_met
         "",
         "workorderId",
         "orderNo",
+        "orderNoChanged",
         "triggerFuzzySearch",
         "onLockVehicle",
         "onClearVehicle",
@@ -51,7 +52,9 @@ template <> constexpr inline auto FrontDeskPage::qt_create_metaobjectdata<qt_met
         "onCreateWorkOrder",
         "onPrintWorkOrder",
         "onPrintQuote",
-        "onPrintSettlement"
+        "onPrintSettlement",
+        "onShowMaintenanceHistory",
+        "onExportQuotePdf"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -59,22 +62,30 @@ template <> constexpr inline auto FrontDeskPage::qt_create_metaobjectdata<qt_met
         QtMocHelpers::SignalData<void(int, const QString &)>(1, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::Int, 3 }, { QMetaType::QString, 4 },
         }}),
+        // Signal 'orderNoChanged'
+        QtMocHelpers::SignalData<void(const QString &)>(5, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::QString, 4 },
+        }}),
         // Slot 'triggerFuzzySearch'
-        QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onLockVehicle'
         QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onClearVehicle'
+        // Slot 'onLockVehicle'
         QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onFeeChanged'
+        // Slot 'onClearVehicle'
         QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onCreateWorkOrder'
+        // Slot 'onFeeChanged'
         QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPrintWorkOrder'
+        // Slot 'onCreateWorkOrder'
         QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPrintQuote'
+        // Slot 'onPrintWorkOrder'
         QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPrintSettlement'
+        // Slot 'onPrintQuote'
         QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onPrintSettlement'
+        QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onShowMaintenanceHistory'
+        QtMocHelpers::SlotData<void()>(14, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onExportQuotePdf'
+        QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -99,19 +110,24 @@ void FrontDeskPage::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _i
     if (_c == QMetaObject::InvokeMetaMethod) {
         switch (_id) {
         case 0: _t->workOrderCreated((*reinterpret_cast<std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2]))); break;
-        case 1: _t->triggerFuzzySearch(); break;
-        case 2: _t->onLockVehicle(); break;
-        case 3: _t->onClearVehicle(); break;
-        case 4: _t->onFeeChanged(); break;
-        case 5: _t->onCreateWorkOrder(); break;
-        case 6: _t->onPrintWorkOrder(); break;
-        case 7: _t->onPrintQuote(); break;
-        case 8: _t->onPrintSettlement(); break;
+        case 1: _t->orderNoChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
+        case 2: _t->triggerFuzzySearch(); break;
+        case 3: _t->onLockVehicle(); break;
+        case 4: _t->onClearVehicle(); break;
+        case 5: _t->onFeeChanged(); break;
+        case 6: _t->onCreateWorkOrder(); break;
+        case 7: _t->onPrintWorkOrder(); break;
+        case 8: _t->onPrintQuote(); break;
+        case 9: _t->onPrintSettlement(); break;
+        case 10: _t->onShowMaintenanceHistory(); break;
+        case 11: _t->onExportQuotePdf(); break;
         default: ;
         }
     }
     if (_c == QMetaObject::IndexOfMethod) {
         if (QtMocHelpers::indexOfMethod<void (FrontDeskPage::*)(int , const QString & )>(_a, &FrontDeskPage::workOrderCreated, 0))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (FrontDeskPage::*)(const QString & )>(_a, &FrontDeskPage::orderNoChanged, 1))
             return;
     }
 }
@@ -135,14 +151,14 @@ int FrontDeskPage::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 9)
+        if (_id < 12)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 9;
+        _id -= 12;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 9)
+        if (_id < 12)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 9;
+        _id -= 12;
     }
     return _id;
 }
@@ -151,5 +167,11 @@ int FrontDeskPage::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
 void FrontDeskPage::workOrderCreated(int _t1, const QString & _t2)
 {
     QMetaObject::activate<void>(this, &staticMetaObject, 0, nullptr, _t1, _t2);
+}
+
+// SIGNAL 1
+void FrontDeskPage::orderNoChanged(const QString & _t1)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 1, nullptr, _t1);
 }
 QT_WARNING_POP

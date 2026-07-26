@@ -24,6 +24,8 @@ EmployeePage::~EmployeePage()
 
 void EmployeePage::setupUI()
 {
+    ensurePositionColumn();  // 首次使用时自动修复列类型
+
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(20, 10, 20, 10);
 
@@ -106,6 +108,26 @@ void EmployeePage::refreshData()
     m_tableView->resizeColumnsToContents();
 }
 
+// 确保 position 列为正确的 ENUM 类型（兼容旧数据库 VARCHAR 定义）
+void EmployeePage::ensurePositionColumn()
+{
+    QSqlQuery q(DbManager::instance().database());
+    q.exec("SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
+           "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='t_employee' "
+           "AND COLUMN_NAME='position'");
+    if (q.next() && !q.value(0).toString().contains("enum", Qt::CaseInsensitive)) {
+        // 列类型不是 ENUM，自动修复
+        QSqlQuery alt(DbManager::instance().database());
+        alt.exec("SET NAMES utf8mb4");
+        alt.exec("ALTER TABLE t_employee MODIFY COLUMN position "
+                 "ENUM('经理','前台','库管','客服') NOT NULL");
+        if (alt.lastError().isValid())
+            qWarning() << "[EmployeePage] position列修复失败:" << alt.lastError().text();
+        else
+            qDebug() << "[EmployeePage] position列已自动修复为ENUM类型";
+    }
+}
+
 void EmployeePage::onEdit()
 {
     QModelIndex idx = m_tableView->currentIndex();
@@ -130,7 +152,7 @@ void EmployeePage::onEdit()
     form->addRow("姓名：", editName);
 
     QComboBox *cmbPos = new QComboBox;
-    cmbPos->addItems({"总经理", "服务顾问", "维修技师", "仓库管理员"});
+    cmbPos->addItems({"经理", "前台", "库管", "客服"});
     cmbPos->setCurrentText(position);
     form->addRow("职位：", cmbPos);
 
@@ -146,17 +168,22 @@ void EmployeePage::onEdit()
 
     if (dlg.exec() != QDialog::Accepted) return;
 
-    QSqlQuery query(DbManager::instance().database());
-    query.prepare("UPDATE t_employee SET name = :name, position = :pos, phone = :phone "
-                  "WHERE employee_id = :eid");
-    query.bindValue(":name", editName->text().trimmed());
-    query.bindValue(":pos", cmbPos->currentText());
-    query.bindValue(":phone", editPhone->text().trimmed().isEmpty() ? QVariant() : editPhone->text().trimmed());
-    query.bindValue(":eid", empId);
-
-    if (!DbManager::instance().executeQuery(query)) {
-        QMessageBox::warning(this, "更新失败", DbManager::instance().lastError());
-        return;
+    // 使用直接 SQL 执行绕过 Qt prepared statement 的潜在中文编码问题
+    {
+        auto esc = [](const QString &s) { return QString(s).replace('\\', "\\\\").replace('\'', "\\'"); };
+        QString phoneVal = editPhone->text().trimmed();
+        QString sql = QString(
+            "UPDATE t_employee SET name='%1', position='%2', phone=%3 "
+            "WHERE employee_id='%4'")
+            .arg(esc(editName->text().trimmed()),
+                 esc(cmbPos->currentText()),
+                 phoneVal.isEmpty() ? "NULL" : QString("'%1'").arg(esc(phoneVal)),
+                 esc(empId));
+        QSqlQuery query(DbManager::instance().database());
+        if (!query.exec(sql)) {
+            QMessageBox::warning(this, "更新失败", query.lastError().text());
+            return;
+        }
     }
 
     refreshData();
@@ -254,7 +281,7 @@ void EmployeePage::onRegisterEmployee()
     form->addRow("确认密码 *：", editConfirmPwd);
 
     QComboBox *cmbPos = new QComboBox;
-    cmbPos->addItems({"总经理", "服务顾问", "维修技师", "仓库管理员"});
+    cmbPos->addItems({"经理", "前台", "库管", "客服"});
     form->addRow("职位 *：", cmbPos);
 
     QLineEdit *editPhone = new QLineEdit;
@@ -271,6 +298,11 @@ void EmployeePage::onRegisterEmployee()
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     btnBox->button(QDialogButtonBox::Ok)->setText("注册");
     form->addRow(btnBox);
+
+    // 断开 QDialogButtonBox 的默认 auto-accept/reject，
+    // 改由我们自己控制：只有校验通过且数据库写入成功才调用 dlg.accept()
+    QObject::disconnect(btnBox, &QDialogButtonBox::accepted, nullptr, nullptr);
+    QObject::disconnect(btnBox, &QDialogButtonBox::rejected, nullptr, nullptr);
 
     connect(btnBox, &QDialogButtonBox::accepted, &dlg, [&]() {
         // 表单校验
@@ -313,19 +345,19 @@ void EmployeePage::onRegisterEmployee()
         }
 
         // 插入新员工
-        QSqlQuery query(DbManager::instance().database());
-        query.prepare("INSERT INTO t_employee (employee_id, name, password, position, phone) "
-                      "VALUES (:eid, :name, :pwd, :pos, :phone)");
-        query.bindValue(":eid", empId);
-        query.bindValue(":name", name);
-        query.bindValue(":pwd", password);
-        query.bindValue(":pos", position);
-        query.bindValue(":phone", phone.isEmpty() ? QVariant() : phone);
-
-        if (!DbManager::instance().executeQuery(query)) {
-            errorLabel->setText("⚠ 注册失败：" + DbManager::instance().lastError());
-            errorLabel->setVisible(true);
-            return;
+        {
+            auto esc = [](const QString &s) { return QString(s).replace('\\', "\\\\").replace('\'', "\\'"); };
+            QString sql = QString(
+                "INSERT INTO t_employee (employee_id, name, password, position, phone) "
+                "VALUES ('%1', '%2', '%3', '%4', %5)")
+                .arg(esc(empId), esc(name), esc(password), esc(position),
+                     phone.isEmpty() ? "NULL" : QString("'%1'").arg(esc(phone)));
+            QSqlQuery query(DbManager::instance().database());
+            if (!query.exec(sql)) {
+                errorLabel->setText("⚠ 注册失败：" + query.lastError().text());
+                errorLabel->setVisible(true);
+                return;
+            }
         }
 
         QMessageBox::information(&dlg, "注册成功",

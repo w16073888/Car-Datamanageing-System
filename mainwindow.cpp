@@ -33,7 +33,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_statusLabel = new QLabel(
         QString("当前用户：%1 | 职位：%2")
         .arg(Session::instance().userName(), Session::instance().position()));
+    m_orderNoLabel = new QLabel;
+    m_orderNoLabel->setStyleSheet("font-weight:bold;color:#2980b9;");
+    m_orderNoLabel->setVisible(false);
+    m_currentPageIndex = 0;
     statusBar()->addWidget(m_statusLabel);
+    statusBar()->addWidget(m_orderNoLabel);
     statusBar()->setStyleSheet("QStatusBar { background: #ecf0f1; border-top: 1px solid #bdc3c7; }");
 
     // 全局样式
@@ -103,6 +108,8 @@ void MainWindow::setupPages()
             Q_UNUSED(orderNo)
             qDebug() << "[MainWindow] 工单已创建:" << orderNo;
         });
+        connect(frontDesk, &FrontDeskPage::orderNoChanged,
+                this, &MainWindow::onFrontDeskOrderNoChanged);
     }
 }
 
@@ -247,6 +254,11 @@ void MainWindow::switchToPage(int index)
     if (index >= 0 && index < PAGE_COUNT) {
         QWidget *target = m_pages[index];
 
+        // 离开前台工作台时隐藏工单号
+        if (m_currentPageIndex == PAGE_FRONT_DESK && index != PAGE_FRONT_DESK) {
+            m_orderNoLabel->setVisible(false);
+        }
+
         // 调用目标页面的refreshData()
         if (auto *p = qobject_cast<EmployeePage*>(target)) {
             p->refreshData();
@@ -254,6 +266,10 @@ void MainWindow::switchToPage(int index)
             p->refreshData();
         } else if (auto *p = qobject_cast<FrontDeskPage*>(target)) {
             p->refreshData();
+            // 进入前台工作台时显示工单号
+            m_orderNoLabel->setText(
+                QString("  当前工单号：%1").arg(p->currentOrderNo()));
+            m_orderNoLabel->setVisible(true);
         } else if (auto *p = qobject_cast<WarehousePage*>(target)) {
             p->refreshData();
         } else if (auto *p = qobject_cast<SettlementPage*>(target)) {
@@ -273,6 +289,7 @@ void MainWindow::switchToPage(int index)
         }
         // 其他页面没有refreshData或不需要刷新
 
+        m_currentPageIndex = index;
         m_stack->setCurrentIndex(index);
         setWindowTitle(QString("汽修4S店综合管理系统 — %1")
                       .arg(m_menuBar->activeAction() ? m_menuBar->activeAction()->text() : ""));
@@ -288,6 +305,15 @@ void MainWindow::onVehicleSavedWithId(int vehicleId, const QString &plateNumber)
     Q_UNUSED(vehicleId)
     Q_UNUSED(plateNumber)
     // FrontDeskPage 内部已处理完整流程
+}
+
+void MainWindow::onFrontDeskOrderNoChanged(const QString &orderNo)
+{
+    if (m_currentPageIndex == PAGE_FRONT_DESK) {
+        m_orderNoLabel->setText(
+            QString("  当前工单号：%1").arg(orderNo));
+        m_orderNoLabel->setVisible(true);
+    }
 }
 
 void MainWindow::applyStyleSheet()

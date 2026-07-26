@@ -22,7 +22,7 @@ UPDATE t_employee SET position = '仓库管理员' WHERE position = '库管';
 
 -- ======================== 2. 更新工单状态枚举 ========================
 ALTER TABLE t_workorder MODIFY COLUMN status
-    ENUM('待派工','维修中','已完工','待提单','已提单','已结算')
+    ENUM('待派工','已派工','维修中','已完工','待提单','已提单','已结算')
     DEFAULT '待派工' COMMENT '工单状态';
 
 -- ======================== 3. t_workorder 新增字段 ========================

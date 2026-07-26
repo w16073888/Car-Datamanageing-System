@@ -688,7 +688,7 @@ void WarehousePage::onPurchaseConfirm()
         q.bindValue(":qty", qty);
         q.bindValue(":cost", cost);
         q.bindValue(":price", price);
-        q.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
+        q.bindValue(":sup", supplier.isEmpty() ? QVariant(QString()) : supplier);
         q.bindValue(":id", existingId);
         DbManager::instance().executeQuery(q);
 
@@ -709,7 +709,7 @@ void WarehousePage::onPurchaseConfirm()
         q3.prepare("INSERT INTO t_part_purchase (part_id, supplier, quantity, unit_cost, total_cost, operator_id) "
                    "VALUES (:pid, :sup, :qty, :cost, :total, :op)");
         q3.bindValue(":pid", existingId);
-        q3.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
+        q3.bindValue(":sup", supplier.isEmpty() ? QVariant(QString()) : supplier);
         q3.bindValue(":qty", qty);
         q3.bindValue(":cost", cost);
         q3.bindValue(":total", qty * cost);
@@ -721,11 +721,11 @@ void WarehousePage::onPurchaseConfirm()
                   "VALUES (:no, :name, :spec, :qty, :cost, :price, :sup)");
         q.bindValue(":no", partNo);
         q.bindValue(":name", partName);
-        q.bindValue(":spec", spec.isEmpty() ? QVariant() : spec);
+        q.bindValue(":spec", spec.isEmpty() ? QVariant(QString()) : spec);
         q.bindValue(":qty", qty);
         q.bindValue(":cost", cost);
         q.bindValue(":price", price);
-        q.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
+        q.bindValue(":sup", supplier.isEmpty() ? QVariant(QString()) : supplier);
         DbManager::instance().executeQuery(q);
         int newId = q.lastInsertId().toInt();
 
@@ -746,7 +746,7 @@ void WarehousePage::onPurchaseConfirm()
         q3.prepare("INSERT INTO t_part_purchase (part_id, supplier, quantity, unit_cost, total_cost, operator_id) "
                    "VALUES (:pid, :sup, :qty, :cost, :total, :op)");
         q3.bindValue(":pid", newId);
-        q3.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
+        q3.bindValue(":sup", supplier.isEmpty() ? QVariant(QString()) : supplier);
         q3.bindValue(":qty", qty);
         q3.bindValue(":cost", cost);
         q3.bindValue(":total", qty * cost);
@@ -858,7 +858,7 @@ void WarehousePage::onReturnConfirm()
     q.bindValue(":qty", qty);
     q.bindValue(":price", costPrice);
     q.bindValue(":total", qty * costPrice);
-    q.bindValue(":ref", orderNo.isEmpty() ? QVariant() : orderNo);
+    q.bindValue(":ref", orderNo.isEmpty() ? QVariant(QString()) : orderNo);
     q.bindValue(":op", Session::instance().userId());
     DbManager::instance().executeQuery(q);
 

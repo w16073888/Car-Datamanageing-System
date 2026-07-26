@@ -318,12 +318,13 @@ void SettlementPage::onSettle()
     q.bindValue(":id", m_currentOrderId);
     DbManager::instance().executeQuery(q);
 
-    // 记录交易历史
+    // 记录交易历史 + 获取车辆ID
+    int vid = 0;
     q.prepare("SELECT vehicle_id FROM t_workorder WHERE id=:id");
     q.bindValue(":id", m_currentOrderId);
     DbManager::instance().executeQuery(q);
     if (q.next()) {
-        int vid = q.value(0).toInt();
+        vid = q.value(0).toInt();
         QSqlQuery txn(DbManager::instance().database());
         txn.prepare("INSERT INTO t_vehicle_transaction (vehicle_id, workorder_id, transaction_type, "
                      "description, amount, operator_id) "
@@ -335,6 +336,86 @@ void SettlementPage::onSettle()
         txn.bindValue(":amt", total);
         txn.bindValue(":op", Session::instance().userId());
         DbManager::instance().executeQuery(txn);
+    }
+
+    // ========== 保存维修历史记录 ==========
+    if (vid > 0) {
+        // 1. 构建维修项目摘要（按机电/钣金/喷漆分组）
+        QString repairSummary;
+        {
+            QSqlQuery qRepair(DbManager::instance().database());
+            qRepair.prepare("SELECT item_type, repair_content, fee FROM t_workorder_repair_item "
+                           "WHERE workorder_id=:woid ORDER BY item_type, id");
+            qRepair.bindValue(":woid", m_currentOrderId);
+            DbManager::instance().executeQuery(qRepair);
+            QString currentType;
+            QStringList typeItems;
+            while (qRepair.next()) {
+                QString typ = qRepair.value(0).toString();
+                QString content = qRepair.value(1).toString().trimmed();
+                double fee = qRepair.value(2).toDouble();
+                if (typ != currentType) {
+                    if (!typeItems.isEmpty())
+                        repairSummary += currentType + ": " + typeItems.join(", ") + "; ";
+                    currentType = typ;
+                    typeItems.clear();
+                }
+                if (!content.isEmpty() || fee > 0)
+                    typeItems << QString("%1 ¥%2").arg(content).arg(fee, 0, 'f', 2);
+            }
+            if (!typeItems.isEmpty())
+                repairSummary += currentType + ": " + typeItems.join(", ") + "; ";
+            if (repairSummary.endsWith("; "))
+                repairSummary.chop(2);
+        }
+
+        // 2. 构建备件使用摘要
+        QString partsSummary;
+        {
+            QSqlQuery qParts(DbManager::instance().database());
+            qParts.prepare("SELECT part_name, quantity FROM t_workorder_item "
+                          "WHERE workorder_id=:woid AND item_type='材料'");
+            qParts.bindValue(":woid", m_currentOrderId);
+            DbManager::instance().executeQuery(qParts);
+            QStringList partItems;
+            while (qParts.next())
+                partItems << QString("%1 x%2").arg(qParts.value(0).toString()).arg(qParts.value(1).toInt());
+            partsSummary = partItems.join(", ");
+        }
+
+        // 3. 计算累计消费（之前所有历史总额 + 本次）
+        double cumulative = total;
+        {
+            QSqlQuery qCum(DbManager::instance().database());
+            qCum.prepare("SELECT COALESCE(SUM(total_amount), 0) FROM t_maintenance_history WHERE vehicle_id=:vid");
+            qCum.bindValue(":vid", vid);
+            DbManager::instance().executeQuery(qCum);
+            if (qCum.next())
+                cumulative = qCum.value(0).toDouble() + total;
+        }
+
+        // 4. 插入维修历史记录
+        {
+            QSqlQuery qIns(DbManager::instance().database());
+            qIns.prepare("INSERT INTO t_maintenance_history "
+                        "(vehicle_id, workorder_id, maintenance_date, total_amount, cumulative_amount, parts_summary, repair_summary) "
+                        "VALUES (:vid, :woid, NOW(), :total, :cumulative, :parts, :repair)");
+            qIns.bindValue(":vid", vid);
+            qIns.bindValue(":woid", m_currentOrderId);
+            qIns.bindValue(":total", total);
+            qIns.bindValue(":cumulative", cumulative);
+            qIns.bindValue(":parts", partsSummary.isEmpty() ? QVariant() : partsSummary);
+            qIns.bindValue(":repair", repairSummary.isEmpty() ? QVariant() : repairSummary);
+            DbManager::instance().executeQuery(qIns);
+        }
+
+        // 5. 更新车辆最后保养日期
+        {
+            QSqlQuery qUpd(DbManager::instance().database());
+            qUpd.prepare("UPDATE t_vehicle SET last_maintenance_date = CURDATE() WHERE id=:vid");
+            qUpd.bindValue(":vid", vid);
+            DbManager::instance().executeQuery(qUpd);
+        }
     }
 
     DbManager::instance().commitTransaction();

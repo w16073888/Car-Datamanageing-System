@@ -30,7 +30,7 @@ CREATE TABLE t_employee (
     employee_id     VARCHAR(20)     NOT NULL UNIQUE             COMMENT '工号',
     name            VARCHAR(50)     NOT NULL                    COMMENT '姓名',
     password        VARCHAR(64)     NOT NULL                    COMMENT '密码(SHA256)',
-    position        ENUM('总经理','服务顾问','维修技师','仓库管理员')
+    position        ENUM('经理','前台','库管','客服')
                                     NOT NULL                    COMMENT '职位',
     phone           VARCHAR(20)                                 COMMENT '联系电话',
     created_at      DATETIME        DEFAULT CURRENT_TIMESTAMP   COMMENT '创建时间',
@@ -41,10 +41,10 @@ CREATE TABLE t_employee (
 
 -- 插入默认管理员（明文密码: admin123）
 INSERT INTO t_employee (employee_id, name, password, position, phone) VALUES
-('ADMIN001', '系统管理员', 'admin123', '总经理', '13800000000'),
-('SV0001',   '服务顾问张三', '123456', '服务顾问', '13800000001'),
-('TECH001',  '技师李四',   '123456', '维修技师', '13800000002'),
-('WH001',    '库管王五',   '123456', '仓库管理员', '13800000003');
+('ADMIN001', '系统管理员', 'admin123', '经理', '13800000000'),
+('SV0001',   '服务顾问张三', '123456', '前台', '13800000001'),
+('TECH001',  '技师李四',   '123456', '库管', '13800000002'),
+('WH001',    '库管王五',   '123456', '客服', '13800000003');
 
 -- ======================== 2. 车辆档案表 ========================
 CREATE TABLE t_vehicle (
@@ -130,7 +130,7 @@ CREATE TABLE t_workorder (
     main_technician VARCHAR(50)                                COMMENT '主修人姓名(冗余)',
     repair_date     DATE                                       COMMENT '报修日期',
     estimated_date  DATE                                       COMMENT '预估完工日期',
-    status          ENUM('待派工','维修中','已完工','已提单','已结算')
+    status          ENUM('待派工','已派工','维修中','已完工','已提单','已结算')
                                     DEFAULT '待派工'            COMMENT '工单状态',
     created_by      INT                                        COMMENT '创建人(员工ID)',
     created_at      DATETIME        DEFAULT CURRENT_TIMESTAMP   COMMENT '创建时间',
@@ -310,6 +310,25 @@ CREATE TABLE t_part_purchase (
     INDEX idx_supplier (supplier),
     FOREIGN KEY (part_id) REFERENCES t_parts(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='备件采购记录表';
+
+-- ======================== 13. 车辆维修历史表 ========================
+DROP TABLE IF EXISTS t_maintenance_history;
+CREATE TABLE t_maintenance_history (
+    id               INT PRIMARY KEY AUTO_INCREMENT  COMMENT '记录ID',
+    vehicle_id       INT NOT NULL                    COMMENT '关联车辆ID',
+    workorder_id     INT NOT NULL UNIQUE             COMMENT '关联工单ID(一对一)',
+    maintenance_date DATETIME NOT NULL               COMMENT '维修日期',
+    total_amount     DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '本次消费总额',
+    cumulative_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计消费(含本次)',
+    parts_summary    TEXT                            COMMENT '备件使用摘要(名称x数量, ...)',
+    repair_summary   TEXT                            COMMENT '维修项目摘要(机电/钣金/喷漆条目及价格)',
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    INDEX idx_vehicle (vehicle_id),
+    INDEX idx_date (maintenance_date),
+    FOREIGN KEY (vehicle_id) REFERENCES t_vehicle(id) ON DELETE CASCADE,
+    FOREIGN KEY (workorder_id) REFERENCES t_workorder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='车辆维修历史表';
 
 -- ======================== 数据库初始化验证 ========================
 SELECT '数据库初始化完成！' AS message,

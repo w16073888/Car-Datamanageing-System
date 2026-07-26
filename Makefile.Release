@@ -222,7 +222,7 @@ release/corefunction.exe: D:/Qt/6.11.1/mingw_64/lib/libQt6PrintSupport.a D:/Qt/6
 	$(LINKER) $(LFLAGS) -o $(DESTDIR_TARGET) @release/object_script.corefunction.Release $(LIBS)
 
 qmake: FORCE
-	@$(QMAKE) -o Makefile.Release corefunction.pro -spec win32-g++ CONFIG+=release
+	@$(QMAKE) -o Makefile.Release corefunction.pro
 
 qmake_all: FORCE
 
@@ -606,6 +606,20 @@ release/moc_mainwindow.cpp: mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qtimer.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QSet \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QScrollArea \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QKeyEvent \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFileDialog \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qfiledialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdir.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdirlisting.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfiledevice.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfile.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfileinfo.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTabWidget \
 		release/moc_predefs.h \
@@ -1838,6 +1852,27 @@ release/moc_FrontDeskPage.cpp: src/pages/FrontDeskPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QSet \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QScrollArea \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qscrollarea.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qboxlayout.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayout.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayoutitem.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qgridlayout.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QKeyEvent \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFileDialog \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qfiledialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdir.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdirlisting.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfiledevice.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfile.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfileinfo.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtableview.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractitemview.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qitemselectionmodel.h \
 		release/moc_predefs.h \
 		../../Qt/6.11.1/mingw_64/bin/moc.exe
 	'D:\Qt\6.11.1\mingw_64\bin\moc.exe' $(DEFINES) --include D:/temmpcode/test/release/moc_predefs.h -ID:/Qt/6.11.1/mingw_64/mkspecs/win32-g++ -ID:/temmpcode/test -ID:/temmpcode/test/src -ID:/temmpcode/test/src/database -ID:/temmpcode/test/src/dialogs -ID:/temmpcode/test/src/pages -ID:/temmpcode/test/src/widgets -ID:/Qt/6.11.1/mingw_64/include -ID:/Qt/6.11.1/mingw_64/include/QtPrintSupport -ID:/Qt/6.11.1/mingw_64/include/QtCharts -ID:/Qt/6.11.1/mingw_64/include/QtOpenGLWidgets -ID:/Qt/6.11.1/mingw_64/include/QtWidgets -ID:/Qt/6.11.1/mingw_64/include/QtOpenGL -ID:/Qt/6.11.1/mingw_64/include/QtGui -ID:/Qt/6.11.1/mingw_64/include/QtSql -ID:/Qt/6.11.1/mingw_64/include/QtCore -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++ -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/x86_64-w64-mingw32 -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/backward -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include-fixed -ID:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include src/pages/FrontDeskPage.h -o release/moc_FrontDeskPage.cpp
@@ -6864,11 +6899,24 @@ release/main.o: main.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qtimer.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QSet \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QScrollArea \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QKeyEvent \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFileDialog \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qfiledialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdir.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdirlisting.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfiledevice.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfile.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfileinfo.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTabWidget \
 		src/dialogs/LoginDialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDialog \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		src/database/DbManager.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlDatabase \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQuery \
@@ -7234,6 +7282,20 @@ release/mainwindow.o: mainwindow.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qtimer.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QSet \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QScrollArea \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QKeyEvent \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFileDialog \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qfiledialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdir.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdirlisting.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfiledevice.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfile.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfileinfo.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTabWidget \
 		src/database/Session.h \
@@ -7252,7 +7314,6 @@ release/mainwindow.o: mainwindow.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qstatusbar.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QMessageBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qmessagebox.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/mainwindow.o mainwindow.cpp
 
@@ -8562,6 +8623,27 @@ release/FrontDeskPage.o: src/pages/FrontDeskPage.cpp src/pages/FrontDeskPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QSet \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QScrollArea \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qscrollarea.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qboxlayout.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayout.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayoutitem.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qgridlayout.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QKeyEvent \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFileDialog \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qfiledialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdir.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdirlisting.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfiledevice.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfile.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfileinfo.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtableview.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractitemview.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qitemselectionmodel.h \
 		src/database/DbManager.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlDatabase \
 		../../Qt/6.11.1/mingw_64/include/QtSql/qsqldatabase.h \
@@ -8577,21 +8659,13 @@ release/FrontDeskPage.o: src/pages/FrontDeskPage.cpp src/pages/FrontDeskPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QString \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QMutex \
 		src/database/Session.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qboxlayout.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayout.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayoutitem.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qgridlayout.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QHBoxLayout \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QGridLayout \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFrame \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QHeaderView \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qheaderview.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractitemview.h \
-		../../Qt/6.11.1/mingw_64/include/QtCore/qitemselectionmodel.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QMessageBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qmessagebox.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDialog \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QListWidget \
@@ -8604,7 +8678,6 @@ release/FrontDeskPage.o: src/pages/FrontDeskPage.cpp src/pages/FrontDeskPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/qtprintsupportexports.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagedpaintdevice.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagelayout.h \
-		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpageranges.h \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/QPrintPreviewDialog \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/qprintpreviewdialog.h \

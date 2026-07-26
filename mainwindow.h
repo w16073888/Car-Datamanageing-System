@@ -44,6 +44,7 @@ protected:
 
 private slots:
     void onVehicleSavedWithId(int vehicleId, const QString &plateNumber);
+    void onFrontDeskOrderNoChanged(const QString &orderNo);
 
 private:
     void setupMenuBar();
@@ -127,6 +128,8 @@ private:
 
     // 状态栏
     QLabel *m_statusLabel;
+    QLabel *m_orderNoLabel;
+    int     m_currentPageIndex;
 };
 
 #endif // MAINWINDOW_H

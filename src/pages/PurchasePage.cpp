@@ -165,9 +165,9 @@ void PurchasePage::onSave()
         query.bindValue(":stock", existingStock + qty);
         query.bindValue(":pp", purchasePrice);
         query.bindValue(":sp", salePrice);
-        query.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
-        query.bindValue(":spec", spec.isEmpty() ? QVariant() : spec);
-        query.bindValue(":appmodel", applicableModel.isEmpty() ? QVariant() : applicableModel);
+        query.bindValue(":sup", supplier.isEmpty() ? QVariant(QString()) : supplier);
+        query.bindValue(":spec", spec.isEmpty() ? QVariant(QString()) : spec);
+        query.bindValue(":appmodel", applicableModel.isEmpty() ? QVariant(QString()) : applicableModel);
         query.bindValue(":id", existingId);
     } else {
         // 新建备件
@@ -176,13 +176,13 @@ void PurchasePage::onSave()
                       "VALUES (:no, :name, :spec, :stock, :pp, :sp, :sup, :warr, :appmodel)");
         query.bindValue(":no", partNo);
         query.bindValue(":name", name);
-        query.bindValue(":spec", spec.isEmpty() ? QVariant() : spec);
+        query.bindValue(":spec", spec.isEmpty() ? QVariant(QString()) : spec);
         query.bindValue(":stock", qty);
         query.bindValue(":pp", purchasePrice);
         query.bindValue(":sp", salePrice);
-        query.bindValue(":sup", supplier.isEmpty() ? QVariant() : supplier);
-        query.bindValue(":warr", warranty.isEmpty() ? QVariant() : warranty);
-        query.bindValue(":appmodel", applicableModel.isEmpty() ? QVariant() : applicableModel);
+        query.bindValue(":sup", supplier.isEmpty() ? QVariant(QString()) : supplier);
+        query.bindValue(":warr", warranty.isEmpty() ? QVariant(QString()) : warranty);
+        query.bindValue(":appmodel", applicableModel.isEmpty() ? QVariant(QString()) : applicableModel);
     }
 
     if (!DbManager::instance().executeQuery(query)) {
