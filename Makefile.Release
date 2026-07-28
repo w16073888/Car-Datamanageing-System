@@ -7314,7 +7314,8 @@ release/mainwindow.o: mainwindow.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qstatusbar.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QMessageBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qmessagebox.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDialog
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/mainwindow.o mainwindow.cpp
 
 release/DbManager.o: src/database/DbManager.cpp src/database/DbManager.h \
@@ -8373,7 +8374,12 @@ release/DataManagerPage.o: src/pages/DataManagerPage.cpp src/pages/DataManagerPa
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlRecord \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h
+		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QClipboard \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qclipboard.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QApplication \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qapplication.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QKeyEvent
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/DataManagerPage.o src/pages/DataManagerPage.cpp
 
 release/FrontDeskPage.o: src/pages/FrontDeskPage.cpp src/pages/FrontDeskPage.h \
@@ -8961,7 +8967,9 @@ release/WarehousePage.o: src/pages/WarehousePage.cpp src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QDateTime \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qdatetime.h \
-		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h
+		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h \
+		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlRecord \
+		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/WarehousePage.o src/pages/WarehousePage.cpp
 
 release/QuotePage.o: src/pages/QuotePage.cpp src/pages/QuotePage.h \

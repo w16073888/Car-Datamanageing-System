@@ -3,7 +3,9 @@
 #include "database/DbManager.h"
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QStatusBar>
+#include <QIcon>
 #include <QLabel>
 #include <QMessageBox>
 #include <QCloseEvent>
@@ -17,7 +19,8 @@ MainWindow::MainWindow(QWidget *parent)
     // ============================================================
     // 窗口基本属性
     // ============================================================
-    setWindowTitle("汽修4S店综合管理系统");
+    setWindowTitle("科盟汽修综合数据管理");
+    setWindowIcon(QIcon(QCoreApplication::applicationDirPath() + "/logo.ico"));
     resize(1280, 720);
     setMinimumSize(960, 540);
 
@@ -74,7 +77,7 @@ void MainWindow::setupPages()
     m_pages[PAGE_EMPLOYEE]         = new EmployeePage;
     m_pages[PAGE_DATA_MANAGER]     = new DataManagerPage;
     m_pages[PAGE_FRONT_DESK]       = new QWidget;  // 占位，前台工作台改为弹窗模式
-    m_pages[PAGE_WAREHOUSE]        = new WarehousePage;
+    m_pages[PAGE_WAREHOUSE]        = new QWidget;  // 占位，库房工作台改为弹窗模式
     m_pages[PAGE_SETTLEMENT]       = new SettlementPage;
     m_pages[PAGE_SETTLEMENT_QUERY] = new SettlementQueryPage;
     m_pages[PAGE_QUOTE]            = new QuotePage;
@@ -180,7 +183,7 @@ void MainWindow::setupMenuBar()
 
     m_menuRepair->addSeparator();
 
-    m_actQuote = m_menuRepair->addAction("报价管理");
+    m_actQuote = m_menuRepair->addAction("结算管理");
     connect(m_actQuote, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_QUOTE);
     });
@@ -193,26 +196,19 @@ void MainWindow::setupMenuBar()
     m_actWarehouse = m_menuWarehouse->addAction("库房工作台");
     m_actWarehouse->setStatusTip("备件领取、材料结算/提单、采购入库、库存查询、退库退货");
     connect(m_actWarehouse, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_WAREHOUSE);
+        // 库房工作台以独立固定尺寸窗口打开
+        QDialog dlg(this);
+        dlg.setWindowTitle("库房工作台");
+        dlg.setFixedSize(1100, 620);
+        QVBoxLayout *l = new QVBoxLayout(&dlg);
+        l->setContentsMargins(0, 0, 0, 0);
+        WarehousePage *wp = new WarehousePage(&dlg);
+        l->addWidget(wp);
+        dlg.exec();
     });
 
     // ============================================================
-    // 4. 结算管理
-    // ============================================================
-    m_menuSettlement = m_menuBar->addMenu("结算管理");
-
-    m_actSettlement = m_menuSettlement->addAction("工单结算");
-    connect(m_actSettlement, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_SETTLEMENT);
-    });
-
-    m_actSettlementQuery = m_menuSettlement->addAction("结算查询");
-    connect(m_actSettlementQuery, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_SETTLEMENT_QUERY);
-    });
-
-    // ============================================================
-    // 5. 财务管理
+    // 4. 财务管理
     // ============================================================
     m_menuFinance = m_menuBar->addMenu("财务管理");
     m_actFinance = m_menuFinance->addAction("收入统计 / 成本统计 / 利润分析");
@@ -265,8 +261,8 @@ void MainWindow::switchToPage(int index)
             p->refreshData();
         } else if (auto *p = qobject_cast<DataManagerPage*>(target)) {
             p->refreshData();
-        } else if (auto *p = qobject_cast<WarehousePage*>(target)) {
-            p->refreshData();
+        } else if (false) {
+            // WarehousePage 不再嵌入堆栈，已改为弹窗模式
         } else if (auto *p = qobject_cast<SettlementPage*>(target)) {
             p->refreshData();
         } else if (auto *p = qobject_cast<SettlementQueryPage*>(target)) {
@@ -286,7 +282,7 @@ void MainWindow::switchToPage(int index)
 
         m_currentPageIndex = index;
         m_stack->setCurrentIndex(index);
-        setWindowTitle(QString("汽修4S店综合管理系统 — %1")
+        setWindowTitle(QString("科盟汽修综合数据管理 — %1")
                       .arg(m_menuBar->activeAction() ? m_menuBar->activeAction()->text() : ""));
     }
 }

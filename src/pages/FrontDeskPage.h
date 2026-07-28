@@ -53,6 +53,8 @@ private slots:
     void onCancelNewCar();        // 新车录入 → 返回查找
     void onCancelDispatch();      // 派工 → 返回查找
     void onSaveVehicleInfo();     // 保存车辆信息修改
+    void onPartSearchTextChanged(const QString &text); // 备件搜索输入变化
+    void onAddPart();             // 添加部件到列表
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -66,7 +68,6 @@ private:
     void clearGhost();
     double calcTotalFee();
     double calcRepairFee();
-    void addRepairRow(int catIndex);
     QString buildQuoteHtml();
     void setState(FrontDeskState s);
 
@@ -110,7 +111,7 @@ private:
 
     // ==================== 派工 ====================
     QLineEdit   *m_editOrderNo;
-    QComboBox   *m_cmbAdvisor, *m_cmbMainTech;
+    QComboBox   *m_cmbAdvisor;
     QSpinBox    *m_spinMileage;
     QTextEdit   *m_textContent;
     QDateEdit   *m_dateRepair, *m_dateEstimated;
@@ -119,7 +120,6 @@ private:
 
     // ==================== 报修内容（动态行，多列布局） ====================
     struct ItemRow {
-        QComboBox *tech;
         QLineEdit *content;
         QDoubleSpinBox *fee;
         QWidget *container;
@@ -129,12 +129,32 @@ private:
     QScrollArea *m_repairScroll;
     QWidget *m_repairColumns;
     QHBoxLayout *m_columnsLayout;
-    static const int MAX_ROWS_PER_COLUMN = 5;
+    static const int MAX_ROWS_PER_COLUMN = 4;
+
+    // 三类技工主修人选择器（每种类型一个）
+    QComboBox *m_mechTech;   // 机电主修人
+    QComboBox *m_bodyTech;   // 钣金主修人
+    QComboBox *m_paintTech;  // 喷漆主修人
 
     void addRepairRow(const QString &type);
     void rebuildRepairLayout();
 
-    QDoubleSpinBox *m_spinMat, *m_spinOther, *m_spinMgmt, *m_spinDep;
+    // ==================== 预计部件选择区 ====================
+    struct SelectedPart {
+        QString name;      // 部件名称
+        QString spec;      // 型号/规格
+        double price;      // 定价
+    };
+    QList<SelectedPart> m_selectedParts;
+    QLineEdit     *m_partSearch;     // 备件模糊搜索输入
+    QLineEdit     *m_partPrice;      // 手动输入定价
+    QPushButton   *m_btnAddPart;     // 添加到列表
+    QTableWidget  *m_partTable;      // 已选部件列表
+    QLabel        *m_lblMatFee;      // 材料费显示（替代 m_spinMat）
+    void refreshPartList();          // 刷新已选部件列表显示
+    double calcPartTotal() const;    // 计算已选部件总价
+
+    QDoubleSpinBox *m_spinOther, *m_spinMgmt, *m_spinDep;
     QLabel         *m_lblTotal;
     QLabel         *m_lblFormulaFee;
     QPushButton    *m_btnCreate, *m_btnPrint;

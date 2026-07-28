@@ -7314,7 +7314,8 @@ debug/mainwindow.o: mainwindow.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qstatusbar.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QMessageBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qmessagebox.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDialog
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o debug/mainwindow.o mainwindow.cpp
 
 debug/DbManager.o: src/database/DbManager.cpp src/database/DbManager.h \
@@ -8373,7 +8374,12 @@ debug/DataManagerPage.o: src/pages/DataManagerPage.cpp src/pages/DataManagerPage
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlRecord \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h
+		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QClipboard \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qclipboard.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QApplication \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qapplication.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QKeyEvent
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o debug/DataManagerPage.o src/pages/DataManagerPage.cpp
 
 debug/FrontDeskPage.o: src/pages/FrontDeskPage.cpp src/pages/FrontDeskPage.h \
@@ -8961,7 +8967,9 @@ debug/WarehousePage.o: src/pages/WarehousePage.cpp src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QDateTime \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qdatetime.h \
-		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h
+		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h \
+		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlRecord \
+		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o debug/WarehousePage.o src/pages/WarehousePage.cpp
 
 debug/QuotePage.o: src/pages/QuotePage.cpp src/pages/QuotePage.h \

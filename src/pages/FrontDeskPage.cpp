@@ -10,7 +10,6 @@
 #include <QMessageBox>
 #include <QSqlQuery>
 #include <QSqlError>
-#include <QScrollArea>
 #include <QDialog>
 #include <QListWidget>
 #include <QPrinter>
@@ -19,6 +18,13 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QKeyEvent>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QCheckBox>
+#include <QRadioButton>
+#include <QButtonGroup>
+#include <QScrollArea>
 
 #define S_BTN1 "QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#3498db;color:#fff;font-size:12px;font-weight:bold;}"
 #define S_BTN1H S_BTN1 "QPushButton:hover{background:#2980b9;}"
@@ -288,7 +294,6 @@ void FrontDeskPage::setupUI()
     m_editOrderNo->setStyleSheet("background:#f0f0f0;");
     m_editOrderNo->setFixedWidth(150);
     m_cmbAdvisor  = new QComboBox;   m_cmbAdvisor->setFixedWidth(50);
-    m_cmbMainTech = new QComboBox;   m_cmbMainTech->setMaximumWidth(150);
     m_spinMileage = new QSpinBox;    m_spinMileage->setRange(0,9999999); m_spinMileage->setSuffix(" km");
     m_spinMileage->setFixedWidth(100);
     m_dateRepair = new QDateEdit;    m_dateRepair->setCalendarPopup(true);
@@ -310,13 +315,12 @@ void FrontDeskPage::setupUI()
     m_dateRepair->installEventFilter(this);
     m_dateEstimated->installEventFilter(this);
 
-    // 第0行：工单号 + 顾问 + 主修 + 公里数 + 报修日期 + 预估完工 + 班别
+    // 第0行：工单号 + 顾问 + 公里数 + 报修日期 + 预估完工 + 班别
     {
         QHBoxLayout *row0 = new QHBoxLayout;
         row0->setSpacing(3);
         row0->addWidget(L("工单号:")); row0->addWidget(m_editOrderNo);
         row0->addWidget(L("顾问:"));   row0->addWidget(m_cmbAdvisor);
-        row0->addWidget(L("主修:"));   row0->addWidget(m_cmbMainTech, 1);
         row0->addWidget(L("公里数:")); row0->addWidget(m_spinMileage);
         row0->addWidget(L("报修:"));   row0->addWidget(m_dateRepair);
         row0->addWidget(L("完工:"));   row0->addWidget(m_dateEstimated);
@@ -339,17 +343,34 @@ void FrontDeskPage::setupUI()
 
     cl->addWidget(m_dispatchGroup);
 
-    // ==================== 5. 报修内容（多列布局，左右滚动） ====================
+    // ==================== 5. 报修内容（左边） + 预计部件选择（右边） ====================
     m_repairGroup = new QGroupBox("报修内容");
     {
-        QVBoxLayout *outerRV = new QVBoxLayout(m_repairGroup);
-        outerRV->setContentsMargins(4,4,4,4);
+        QHBoxLayout *repairMain = new QHBoxLayout(m_repairGroup);
+        repairMain->setContentsMargins(4,4,4,4);
+        repairMain->setSpacing(8);
+
+        // ---- 左侧：技工选择 + 报修内容滚动区 (~2/3) ----
+        QVBoxLayout *leftSide = new QVBoxLayout;
+        leftSide->setSpacing(2);
+
+        // 三种技工主修人选择器（每类一个）
+        QHBoxLayout *techHeader = new QHBoxLayout;
+        techHeader->setSpacing(4);
+        m_mechTech = new QComboBox; m_mechTech->setMaximumWidth(100);
+        m_bodyTech = new QComboBox; m_bodyTech->setMaximumWidth(100);
+        m_paintTech = new QComboBox; m_paintTech->setMaximumWidth(100);
+        techHeader->addWidget(new QLabel("机电主修:")); techHeader->addWidget(m_mechTech);
+        techHeader->addWidget(new QLabel("钣金主修:")); techHeader->addWidget(m_bodyTech);
+        techHeader->addWidget(new QLabel("喷漆主修:")); techHeader->addWidget(m_paintTech);
+        techHeader->addStretch();
+        leftSide->addLayout(techHeader);
 
         m_repairScroll = new QScrollArea;
         m_repairScroll->setWidgetResizable(true);
         m_repairScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
         m_repairScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        m_repairScroll->setFixedHeight(240);
+        m_repairScroll->setFixedHeight(180);
 
         m_repairColumns = new QWidget;
         m_columnsLayout = new QHBoxLayout(m_repairColumns);
@@ -357,7 +378,68 @@ void FrontDeskPage::setupUI()
         m_columnsLayout->setSpacing(8);
 
         m_repairScroll->setWidget(m_repairColumns);
-        outerRV->addWidget(m_repairScroll);
+        leftSide->addWidget(m_repairScroll);
+        repairMain->addLayout(leftSide, 2);
+
+        // ---- 右侧：预计备件选择区 (~1/3) ----
+        QVBoxLayout *rightSide = new QVBoxLayout;
+        rightSide->setSpacing(3);
+
+        QLabel *partTitle = new QLabel("预计备件选择");
+        partTitle->setStyleSheet("font-weight:bold;color:#2c3e50;");
+        rightSide->addWidget(partTitle);
+
+        // 备件搜索（模糊搜索+下拉）
+        m_partSearch = new QLineEdit;
+        m_partSearch->setPlaceholderText("搜索备件(编号/名称/供应商/型号)");
+        rightSide->addWidget(m_partSearch);
+
+        // 定价输入
+        QHBoxLayout *priceRow = new QHBoxLayout;
+        priceRow->setSpacing(3);
+        priceRow->addWidget(new QLabel("定价:"));
+        m_partPrice = new QLineEdit;
+        m_partPrice->setPlaceholderText("手动输入价格");
+        m_partPrice->setFixedWidth(80);
+        priceRow->addWidget(m_partPrice);
+        priceRow->addStretch();
+        rightSide->addLayout(priceRow);
+
+        // 已选备件列表（占据更多空间）
+        m_partTable = new QTableWidget(0, 3);
+        m_partTable->setHorizontalHeaderLabels({"名称", "型号", "单价"});
+        m_partTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_partTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        m_partTable->verticalHeader()->setVisible(false);
+        m_partTable->horizontalHeader()->setStretchLastSection(false);
+        m_partTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+        m_partTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+        m_partTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        m_partTable->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:3px;font-size:11px;}");
+        rightSide->addWidget(m_partTable, 1);
+
+        // 确定 + 删除选中备件 同一行
+        QHBoxLayout *partBtnRow = new QHBoxLayout;
+        partBtnRow->setSpacing(4);
+        m_btnAddPart = new QPushButton("确定");
+        m_btnAddPart->setStyleSheet(S_BTN2H);
+        m_btnAddPart->setMinimumHeight(26);
+        partBtnRow->addWidget(m_btnAddPart);
+
+        QPushButton *btnRemovePart = new QPushButton("删除选中备件");
+        btnRemovePart->setStyleSheet(S_BTNGH);
+        btnRemovePart->setMinimumHeight(26);
+        connect(btnRemovePart, &QPushButton::clicked, [this]() {
+            int row = m_partTable->currentRow();
+            if (row < 0) return;
+            m_partTable->removeRow(row);
+            m_selectedParts.removeAt(row);
+            onFeeChanged();
+        });
+        partBtnRow->addWidget(btnRemovePart);
+        rightSide->addLayout(partBtnRow);
+
+        repairMain->addLayout(rightSide, 1);
     }
     cl->addWidget(m_repairGroup);
 
@@ -370,33 +452,33 @@ void FrontDeskPage::setupUI()
     m_feeGroup = new QGroupBox("费用明细");
     QVBoxLayout *fg = new QVBoxLayout(m_feeGroup);
     fg->setContentsMargins(4,2,4,2); fg->setSpacing(2);
-    m_spinMat   = new QDoubleSpinBox; m_spinMat->setRange(0,999999.99);   m_spinMat->setPrefix("¥ "); m_spinMat->setDecimals(2); m_spinMat->setMaximumWidth(110);
     m_spinOther = new QDoubleSpinBox; m_spinOther->setRange(0,999999.99); m_spinOther->setPrefix("¥ "); m_spinOther->setDecimals(2); m_spinOther->setMaximumWidth(110);
     m_spinMgmt  = new QDoubleSpinBox; m_spinMgmt->setRange(0,999999.99);  m_spinMgmt->setPrefix("¥ "); m_spinMgmt->setDecimals(2); m_spinMgmt->setMaximumWidth(110);
     m_spinDep   = new QDoubleSpinBox; m_spinDep->setRange(0,999999.99);   m_spinDep->setPrefix("¥ ");  m_spinDep->setDecimals(2); m_spinDep->setMaximumWidth(110);
 
     // 安装回车导航
-    m_spinMat->installEventFilter(this);
     m_spinOther->installEventFilter(this);
     m_spinMgmt->installEventFilter(this);
     m_spinDep->installEventFilter(this);
 
-    connect(m_spinMat, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &FrontDeskPage::onFeeChanged);
     connect(m_spinOther, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &FrontDeskPage::onFeeChanged);
     connect(m_spinMgmt, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &FrontDeskPage::onFeeChanged);
 
-    // 公式费合计
+    // 工时费合计
     m_lblFormulaFee = new QLabel("¥ 0.00");
     m_lblFormulaFee->setStyleSheet("font-size:14px;font-weight:bold;color:#2980b9;");
+    // 材料费（自动从部件列表计算）
+    m_lblMatFee = new QLabel("¥ 0.00");
+    m_lblMatFee->setStyleSheet("font-size:14px;font-weight:bold;color:#2980b9;");
     // 第0行：费用输入 + 合计，同一行
     {
         QHBoxLayout *row = new QHBoxLayout;
         row->setSpacing(3);
-        row->addWidget(L("材料费:")); row->addWidget(m_spinMat);
         row->addWidget(L("其它费:")); row->addWidget(m_spinOther);
         row->addWidget(L("管理费:")); row->addWidget(m_spinMgmt);
         row->addWidget(L("订金:"));   row->addWidget(m_spinDep);
-        row->addWidget(L("公式费合计:")); row->addWidget(m_lblFormulaFee);
+        row->addWidget(L("工时费合计:")); row->addWidget(m_lblFormulaFee);
+        row->addWidget(L("材料费:")); row->addWidget(m_lblMatFee);
         m_lblTotal = new QLabel("¥ 0.00");
         m_lblTotal->setStyleSheet("font-size:16px;font-weight:bold;color:#e74c3c;");
         row->addWidget(L("合计:")); row->addWidget(m_lblTotal);
@@ -445,6 +527,10 @@ void FrontDeskPage::setupUI()
     connect(m_btnCancelNewCar, &QPushButton::clicked, this, &FrontDeskPage::onCancelNewCar);
     connect(m_btnCancelDispatch, &QPushButton::clicked, this, &FrontDeskPage::onCancelDispatch);
 
+    // 部件选择区信号
+    connect(m_partSearch, &QLineEdit::textChanged, this, &FrontDeskPage::onPartSearchTextChanged);
+    connect(m_btnAddPart, &QPushButton::clicked, this, &FrontDeskPage::onAddPart);
+
     // 搜索：回车/Tab/失焦触发搜索
     QList<QLineEdit*> searchFields = {m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel};
     for (auto *e : searchFields) {
@@ -456,42 +542,29 @@ void FrontDeskPage::setupUI()
 }
 
 // ============================================================
-// addRepairRow — 添加报修内容行
+// addRepairRow — 添加报修内容行（仅内容和费用）
 // ============================================================
 void FrontDeskPage::addRepairRow(const QString &type)
 {
     ItemRow row;
     row.container = nullptr;
     row.type = type;
-    row.tech = new QComboBox;
-    row.tech->setMinimumWidth(90);
     row.content = new QLineEdit;
     row.content->setPlaceholderText("内容");
-    row.content->setFixedWidth(250);
+    row.content->setFixedWidth(150);
     row.fee = new QDoubleSpinBox;
     row.fee->setRange(0, 999999.99);
-    row.fee->setPrefix("¥ ");
-    row.fee->setDecimals(2);
-    row.fee->setMinimumWidth(100);
-
-    // 加载技师列表
-    row.tech->clear();
-    row.tech->addItem("", 0);
-    {
-        QSqlQuery q(DbManager::instance().database());
-        q.exec("SELECT id,name FROM t_employee WHERE is_active=1 ORDER BY name");
-        while (q.next())
-            row.tech->addItem(q.value(1).toString(), q.value(0).toInt());
-    }
+    row.fee->setDecimals(0);
+    row.fee->setFixedWidth(70);
 
     // 费用变化 → 刷新合计
     connect(row.fee, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &FrontDeskPage::onFeeChanged);
 
-    // 内容编辑完成 → 如果同类最后一行的内容非空，自动新增同类型空行
+    // 内容编辑完成 → 如果同类最后一行有内容，自动新增同类型空行（无行数上限，多列自动换列）
     QString typeCapture = type;
     connect(row.content, &QLineEdit::editingFinished, this, [this, typeCapture]() {
-        // 找该类最后一行的指针
+        // 获取该类型最后一行，如果它有内容则自动新增空行（无上限，由多列布局自动换列）
         ItemRow *lastOfType = nullptr;
         for (int i = m_allRows.size() - 1; i >= 0; i--) {
             if (m_allRows[i].type == typeCapture) {
@@ -501,14 +574,12 @@ void FrontDeskPage::addRepairRow(const QString &type)
         }
         if (!lastOfType) return;
         bool lastHasContent = !lastOfType->content->text().trimmed().isEmpty()
-                           || lastOfType->fee->value() > 0
-                           || lastOfType->tech->currentData().toInt() > 0;
+                           || lastOfType->fee->value() > 0;
         if (lastHasContent)
             addRepairRow(typeCapture);
     });
 
     // 安装回车导航事件过滤器
-    row.tech->installEventFilter(this);
     row.content->installEventFilter(this);
     row.fee->installEventFilter(this);
 
@@ -517,7 +588,7 @@ void FrontDeskPage::addRepairRow(const QString &type)
 }
 
 // ============================================================
-// rebuildRepairLayout — 多列布局，每列最多 11 行，同类放一块
+// rebuildRepairLayout — 多列布局，每列最多 MAX_ROWS_PER_COLUMN 行
 // ============================================================
 void FrontDeskPage::rebuildRepairLayout()
 {
@@ -550,19 +621,15 @@ void FrontDeskPage::rebuildRepairLayout()
         colLayout->setContentsMargins(2, 0, 2, 0);
         colLayout->setSpacing(2);
 
-        // 列头
+        // 列头：仅内容 + 费用
         {
             QHBoxLayout *hdr = new QHBoxLayout;
-            QLabel *lblTech = new QLabel("维修人");
-            lblTech->setStyleSheet("font-weight:bold;");
-            lblTech->setFixedWidth(92);
             QLabel *lblContent = new QLabel("内容");
             lblContent->setStyleSheet("font-weight:bold;");
-            lblContent->setFixedWidth(250);
+            lblContent->setFixedWidth(150);
             QLabel *lblFee = new QLabel("费用");
             lblFee->setStyleSheet("font-weight:bold;");
-            lblFee->setFixedWidth(100);
-            hdr->addWidget(lblTech);
+            lblFee->setFixedWidth(70);
             hdr->addWidget(lblContent);
             hdr->addWidget(lblFee);
             hdr->addStretch();
@@ -588,7 +655,6 @@ void FrontDeskPage::rebuildRepairLayout()
                 QHBoxLayout *rowLayout = new QHBoxLayout(row->container);
                 rowLayout->setContentsMargins(0, 0, 0, 0);
                 rowLayout->setSpacing(3);
-                rowLayout->addWidget(row->tech);
                 rowLayout->addWidget(row->content);
                 rowLayout->addWidget(row->fee);
                 rowLayout->addStretch();
@@ -621,11 +687,16 @@ void FrontDeskPage::loadCombos()
         }
     }
 
-    m_cmbMainTech->clear(); m_cmbMainTech->addItem("",0);
-    q.exec("SELECT id,name,position FROM t_employee WHERE is_active=1 ORDER BY name");
-    while (q.next()) m_cmbMainTech->addItem(QString("%1(%2)").arg(q.value(1).toString(),q.value(2).toString()), q.value(0).toInt());
-
-    // 报修内容的技师列表在 addRepairRow() 中各自加载
+    // 加载三类技工主修人选择器（所有活跃员工）
+    auto loadTechCombo = [&](QComboBox *cb) {
+        cb->clear(); cb->addItem("", 0);
+        QSqlQuery qq(DbManager::instance().database());
+        qq.exec("SELECT id,name FROM t_employee WHERE is_active=1 ORDER BY name");
+        while (qq.next()) cb->addItem(qq.value(1).toString(), qq.value(0).toInt());
+    };
+    loadTechCombo(m_mechTech);
+    loadTechCombo(m_bodyTech);
+    loadTechCombo(m_paintTech);
 }
 
 // ============================================================
@@ -663,7 +734,8 @@ void FrontDeskPage::resetForm()
             }
         }
     }
-    m_cmbMainTech->setCurrentIndex(0); m_textContent->clear();
+    m_mechTech->setCurrentIndex(0); m_bodyTech->setCurrentIndex(0);
+    m_paintTech->setCurrentIndex(0); m_textContent->clear();
     m_dateRepair->setDate(QDate::currentDate()); m_dateEstimated->setDate(QDate::currentDate());
     m_cmbShift->setCurrentIndex(0);
 
@@ -679,9 +751,16 @@ void FrontDeskPage::resetForm()
     addRepairRow("钣金");
     addRepairRow("喷漆");
 
-    m_spinMat->setValue(0); m_spinOther->setValue(0); m_spinMgmt->setValue(0); m_spinDep->setValue(0);
+    // 清空部件选择区
+    m_selectedParts.clear();
+    m_partTable->setRowCount(0);
+    m_partSearch->clear();
+    m_partPrice->clear();
+
+    m_spinOther->setValue(0); m_spinMgmt->setValue(0); m_spinDep->setValue(0);
     m_lblTotal->setText("¥ 0.00");
     m_lblFormulaFee->setText("¥ 0.00");
+    m_lblMatFee->setText("¥ 0.00");
 
     // 重置新车录入表单
     m_nPlate->clear(); m_nVin->clear(); m_nEngine->clear();
@@ -698,14 +777,23 @@ double FrontDeskPage::calcRepairFee()
     return t;
 }
 
+double FrontDeskPage::calcPartTotal() const
+{
+    double t = 0;
+    for (auto &p : m_selectedParts)
+        t += p.price;
+    return t;
+}
+
 double FrontDeskPage::calcTotalFee()
 {
-    return calcRepairFee() + m_spinMat->value() + m_spinOther->value() + m_spinMgmt->value();
+    return calcRepairFee() + calcPartTotal() + m_spinOther->value() + m_spinMgmt->value();
 }
 
 void FrontDeskPage::onFeeChanged()
 {
     m_lblFormulaFee->setText(QString("¥ %1").arg(calcRepairFee(),0,'f',2));
+    m_lblMatFee->setText(QString("¥ %1").arg(calcPartTotal(),0,'f',2));
     m_lblTotal->setText(QString("¥ %1").arg(calcTotalFee(),0,'f',2));
 }
 
@@ -1043,12 +1131,133 @@ void FrontDeskPage::onSaveVehicleInfo()
 }
 
 // ============================================================
+// 部件选择区 — 模糊搜索 + 下拉
+// ============================================================
+void FrontDeskPage::onPartSearchTextChanged(const QString &text)
+{
+    if (text.trimmed().isEmpty()) return;
+
+    QSqlQuery q(DbManager::instance().database());
+    QString kw = text.trimmed();
+    kw.replace("'", "''");
+    q.prepare(QString(
+        "SELECT p.name, COALESCE(NULLIF(p.spec,''), '') AS spec, "
+        "COALESCE(p.sale_price, 0) AS price, p.part_no, p.supplier "
+        "FROM t_parts p "
+        "JOIN t_part_instance i ON i.part_id = p.id "
+        "WHERE i.status = '在库' "
+        "AND (p.part_no LIKE '%%1%' OR p.name LIKE '%%1%' "
+        "     OR p.supplier LIKE '%%1%' OR p.spec LIKE '%%1%') "
+        "GROUP BY p.id, p.part_no, p.name, p.spec, p.sale_price, p.supplier "
+        "HAVING COUNT(CASE WHEN i.status='在库' THEN 1 END) > 0 "
+        "ORDER BY p.name LIMIT 15").arg(kw));
+    DbManager::instance().executeQuery(q);
+
+    // 有匹配 → 弹出下拉选择对话框
+    if (q.next()) {
+        q.seek(-1); // 回到第一条之前
+        QDialog dlg(this);
+        dlg.setWindowTitle("选择备件");
+        dlg.resize(580, 320);
+        QVBoxLayout *dl = new QVBoxLayout(&dlg);
+        QTableWidget *tbl = new QTableWidget;
+        tbl->setColumnCount(4);
+        tbl->setHorizontalHeaderLabels({"名称", "型号", "售价", "供应商"});
+        tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+        tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        tbl->verticalHeader()->setVisible(false);
+        tbl->horizontalHeader()->setStretchLastSection(false);
+        tbl->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+        tbl->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+        tbl->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        tbl->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+        tbl->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:3px;}");
+
+        QList<QStringList> rows;
+        while (q.next()) {
+            QStringList row;
+            row << q.value(0).toString()  // name
+                << q.value(1).toString()  // spec
+                << QString("¥%1").arg(q.value(2).toDouble(), 0, 'f', 2)  // price display
+                << q.value(4).toString()  // supplier
+                << q.value(2).toString(); // price raw
+            rows << row;
+        }
+        tbl->setRowCount(rows.size());
+        for (int i = 0; i < rows.size(); i++) {
+            tbl->setItem(i, 0, new QTableWidgetItem(rows[i][0]));
+            tbl->setItem(i, 1, new QTableWidgetItem(rows[i][1]));
+            tbl->setItem(i, 2, new QTableWidgetItem(rows[i][2]));
+            tbl->setItem(i, 3, new QTableWidgetItem(rows[i][3]));
+        }
+        dl->addWidget(tbl, 1);
+        QHBoxLayout *bb = new QHBoxLayout;
+        QPushButton *ok = new QPushButton("选择"); ok->setStyleSheet(S_BTN1H);
+        QPushButton *ca = new QPushButton("取消"); ca->setStyleSheet(S_BTNGH);
+        bb->addStretch(); bb->addWidget(ok); bb->addWidget(ca);
+        dl->addLayout(bb);
+        connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
+        connect(ca, &QPushButton::clicked, &dlg, &QDialog::reject);
+        connect(tbl, &QTableWidget::cellDoubleClicked, &dlg, &QDialog::accept);
+
+        if (dlg.exec() == QDialog::Accepted && tbl->currentRow() >= 0) {
+            int r = tbl->currentRow();
+            m_partSearch->setText(tbl->item(r, 0)->text());
+            m_partPrice->setText(rows[r][4]); // price raw (index 4: name,spec,priceDisp,supplier,priceRaw)
+        }
+    }
+    // 无匹配 → 不展开下拉，用户输入即为部件名称
+}
+
+// ============================================================
+// 部件选择区 — 添加到列表
+// ============================================================
+void FrontDeskPage::onAddPart()
+{
+    QString name = m_partSearch->text().trimmed();
+    if (name.isEmpty()) {
+        QMessageBox::warning(this, "提示", "请输入备件名称");
+        return;
+    }
+    bool ok = false;
+    double price = m_partPrice->text().trimmed().toDouble(&ok);
+    if (!ok || price < 0) {
+        QMessageBox::warning(this, "提示", "请输入有效的定价");
+        return;
+    }
+    SelectedPart sp;
+    sp.name = name;
+    sp.spec = "";
+    sp.price = price;
+    m_selectedParts.append(sp);
+    refreshPartList();
+    onFeeChanged();
+    m_partSearch->clear();
+    m_partPrice->clear();
+    m_partSearch->setFocus();
+}
+
+// ============================================================
+// 刷新已选部件列表
+// ============================================================
+void FrontDeskPage::refreshPartList()
+{
+    m_partTable->setRowCount(0);
+    m_partTable->setRowCount(m_selectedParts.size());
+    for (int i = 0; i < m_selectedParts.size(); i++) {
+        m_partTable->setItem(i, 0, new QTableWidgetItem(m_selectedParts[i].name));
+        m_partTable->setItem(i, 1, new QTableWidgetItem(m_selectedParts[i].spec));
+        m_partTable->setItem(i, 2, new QTableWidgetItem(
+            QString("¥%1").arg(m_selectedParts[i].price, 0, 'f', 2)));
+    }
+}
+
+// ============================================================
 // 创建工单
 // ============================================================
 void FrontDeskPage::onCreateWorkOrder()
 {
     if (m_lockedVid == 0) { QMessageBox::warning(this,"提示","请先锁定车辆"); return; }
-    if (m_cmbMainTech->currentData().toInt() == 0) { QMessageBox::warning(this,"提示","请选主修人"); return; }
 
     // ========== 1. 公里数验证：不能小于数据库中之前保存的公里数 ==========
     {
@@ -1069,8 +1278,7 @@ void FrontDeskPage::onCreateWorkOrder()
     // ========== 2. 报修内容验证：至少填入一个条目 ==========
     bool hasItem = false;
     for (auto &row : m_allRows) {
-        if (row.tech->currentData().toInt() > 0
-            || !row.content->text().trimmed().isEmpty()
+        if (!row.content->text().trimmed().isEmpty()
             || row.fee->value() > 0)
         { hasItem = true; break; }
     }
@@ -1080,20 +1288,33 @@ void FrontDeskPage::onCreateWorkOrder()
     if (orderNo.isEmpty()) { orderNo = generateOrderNo(); m_editOrderNo->setText(orderNo); }
 
     double labor = calcRepairFee();
-    double mat = m_spinMat->value(), oth = m_spinOther->value(), mgmt = m_spinMgmt->value();
+    double mat = calcPartTotal(), oth = m_spinOther->value(), mgmt = m_spinMgmt->value();
     double total = labor + mat + oth + mgmt;
+
+    // 读取三类技工ID
+    int mechTechId = m_mechTech->currentData().toInt();
+    int bodyTechId = m_bodyTech->currentData().toInt();
+    int paintTechId = m_paintTech->currentData().toInt();
+    // 兼容字段：取第一个非空技工
+    int compatTechId = mechTechId ? mechTechId : (bodyTechId ? bodyTechId : paintTechId);
+    QString compatTechName;
+    if (mechTechId) compatTechName = m_mechTech->currentText();
+    else if (bodyTechId) compatTechName = m_bodyTech->currentText();
+    else if (paintTechId) compatTechName = m_paintTech->currentText();
 
     // ---- 调试: 打印即将插入的工单关键字段 ----
     qDebug() << "========== [onCreateWorkOrder] 准备插入工单 ==========";
     qDebug() << "  工单号:" << orderNo;
     qDebug() << "  车辆ID:" << m_lockedVid;
-    qDebug() << "  主修人ID:" << m_cmbMainTech->currentData().toInt();
+    qDebug() << "  机电主修人ID:" << mechTechId << " 姓名:" << m_mechTech->currentText();
+    qDebug() << "  钣金主修人ID:" << bodyTechId << " 姓名:" << m_bodyTech->currentText();
+    qDebug() << "  喷漆主修人ID:" << paintTechId << " 姓名:" << m_paintTech->currentText();
+    qDebug() << "  兼容主修人ID:" << compatTechId << " 姓名:" << compatTechName;
     qDebug() << "  顾问ID:" << (m_cmbAdvisor->currentData().toInt() > 0 ? m_cmbAdvisor->currentData().toInt() : 0);
     qDebug() << "  公里数:" << m_spinMileage->value();
     qDebug() << "  报修日期:" << m_dateRepair->date().toString("yyyy-MM-dd");
     qDebug() << "  预估完工:" << m_dateEstimated->date().toString("yyyy-MM-dd");
     qDebug() << "  班别:" << m_cmbShift->currentText();
-    qDebug() << "  主修人姓名:" << m_cmbMainTech->currentText();
     qDebug() << "  报修内容:" << m_textContent->toPlainText();
     qDebug() << "  工时费:" << labor << " 材料费:" << mat << " 其它费:" << oth
              << " 管理费:" << mgmt << " 订金:" << m_spinDep->value();
@@ -1104,18 +1325,23 @@ void FrontDeskPage::onCreateWorkOrder()
 
     DbManager::instance().beginTransaction();
     QSqlQuery q(DbManager::instance().database());
-    q.prepare("INSERT INTO t_workorder (order_no,vehicle_id,technician_id,customer_service_id,mileage,"
+    q.prepare("INSERT INTO t_workorder (order_no,vehicle_id,technician_id,mechanic_tech_id,body_tech_id,paint_tech_id,"
+              "customer_service_id,mileage,"
               "repair_content,repair_date,estimated_date,shift,main_technician,"
               "material_fee,other_fee,management_fee,labor_fee,total_amount,deposit,status,created_by) "
-              "VALUES (:no,:vid,:tid,:csi,:mile,:cont,:rd,:ed,:sh,:mtech,"
+              "VALUES (:no,:vid,:tid,:mtid,:btid,:ptid,:csi,:mile,:cont,:rd,:ed,:sh,:mtech,"
               ":mf,:of,:mgf,:lf,:total,:dep,'已派工',:creator)");
     q.bindValue(":no",orderNo); q.bindValue(":vid",m_lockedVid);
-    q.bindValue(":tid",m_cmbMainTech->currentData().toInt());
+    q.bindValue(":tid", compatTechId > 0 ? compatTechId : QVariant(QMetaType::fromType<int>()));
+    q.bindValue(":mtid", mechTechId > 0 ? mechTechId : QVariant(QMetaType::fromType<int>()));
+    q.bindValue(":btid", bodyTechId > 0 ? bodyTechId : QVariant(QMetaType::fromType<int>()));
+    q.bindValue(":ptid", paintTechId > 0 ? paintTechId : QVariant(QMetaType::fromType<int>()));
     q.bindValue(":csi",m_cmbAdvisor->currentData().toInt()>0?m_cmbAdvisor->currentData().toInt():QVariant(QMetaType::fromType<int>()));
     q.bindValue(":mile",m_spinMileage->value());
     q.bindValue(":cont",m_textContent->toPlainText());
     q.bindValue(":rd",m_dateRepair->date()); q.bindValue(":ed",m_dateEstimated->date());
-    q.bindValue(":sh",m_cmbShift->currentText()); q.bindValue(":mtech",m_cmbMainTech->currentText());
+    q.bindValue(":sh",m_cmbShift->currentText());
+    q.bindValue(":mtech", compatTechName.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : compatTechName);
     q.bindValue(":mf",mat); q.bindValue(":of",oth); q.bindValue(":mgf",mgmt);
     q.bindValue(":lf",labor); q.bindValue(":total",total); q.bindValue(":dep",m_spinDep->value());
     q.bindValue(":creator",Session::instance().userId());
@@ -1130,14 +1356,20 @@ void FrontDeskPage::onCreateWorkOrder()
 
     int woid = q.lastInsertId().toInt();
     for (auto &row : m_allRows) {
-        int techId = row.tech->currentData().toInt();
         QString cont = row.content->text().trimmed();
         double fee = row.fee->value();
-        if (techId == 0 && cont.isEmpty() && fee == 0) continue;
+        if (cont.isEmpty() && fee == 0) continue;
+        // 根据行类型获取对应的技工
+        int techId = 0;
+        QString techName;
+        if (row.type == "机电")      { techId = mechTechId;  techName = m_mechTech->currentText(); }
+        else if (row.type == "钣金") { techId = bodyTechId;  techName = m_bodyTech->currentText(); }
+        else if (row.type == "喷漆") { techId = paintTechId; techName = m_paintTech->currentText(); }
         q.prepare("INSERT INTO t_workorder_repair_item (workorder_id,item_type,repair_person,repair_content,fee) "
                   "VALUES (:woid,:type,:person,:cont,:fee)");
         q.bindValue(":woid",woid); q.bindValue(":type",row.type);
-        q.bindValue(":person",row.tech->currentText()); q.bindValue(":cont",cont); q.bindValue(":fee",fee);
+        q.bindValue(":person",techName.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : techName);
+        q.bindValue(":cont",cont); q.bindValue(":fee",fee);
         DbManager::instance().executeQuery(q);
         if (techId > 0) {
             q.prepare("INSERT INTO t_technician_work_record (workorder_id,technician_id,item_type,work_content,fee) "
@@ -1146,6 +1378,15 @@ void FrontDeskPage::onCreateWorkOrder()
             q.bindValue(":type",row.type); q.bindValue(":cont",cont); q.bindValue(":fee",fee);
             DbManager::instance().executeQuery(q);
         }
+    }
+    // 保存预计部件到工单备件明细
+    for (auto &sp : m_selectedParts) {
+        q.prepare("INSERT INTO t_workorder_item (workorder_id, part_id, part_name, quantity, unit_price, item_type) "
+                  "VALUES (:woid, NULL, :name, 1, :price, '材料')");
+        q.bindValue(":woid", woid);
+        q.bindValue(":name", sp.name);
+        q.bindValue(":price", sp.price);
+        DbManager::instance().executeQuery(q);
     }
     q.prepare("INSERT INTO t_vehicle_transaction (vehicle_id,workorder_id,transaction_type,description,operator_id) "
               "VALUES (:vid,:woid,'进厂维修',:desc,:op)");
@@ -1179,13 +1420,21 @@ void FrontDeskPage::onPrintWorkOrder()
         QTextDocument doc;
         QString rows;
         for (auto &row : m_allRows) {
-            QString tech = row.tech->currentText(), cont = row.content->text().trimmed();
+            QString cont = row.content->text().trimmed();
             double fee = row.fee->value();
-            if (tech.isEmpty() && cont.isEmpty() && fee==0) continue;
+            if (cont.isEmpty() && fee==0) continue;
+            QString techName;
+            if (row.type == "机电")      techName = m_mechTech->currentText();
+            else if (row.type == "钣金") techName = m_bodyTech->currentText();
+            else if (row.type == "喷漆") techName = m_paintTech->currentText();
             rows += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>¥%4</td></tr>")
-                    .arg(row.type, tech, cont).arg(fee, 0, 'f', 2);
+                    .arg(row.type, techName, cont).arg(fee, 0, 'f', 2);
         }
         double total = calcTotalFee();
+        QString techSummary = QString("机电:%1 钣金:%2 喷漆:%3")
+            .arg(m_mechTech->currentText().isEmpty() ? "-" : m_mechTech->currentText(),
+                 m_bodyTech->currentText().isEmpty() ? "-" : m_bodyTech->currentText(),
+                 m_paintTech->currentText().isEmpty() ? "-" : m_paintTech->currentText());
         QString html = QString(
             "<div style='text-align:center;'><h2>维修工单</h2><hr></div>"
             "<p><b>工单号：</b>%1</p><p><b>车牌号：</b>%2</p><p><b>主修人：</b>%3</p>"
@@ -1194,7 +1443,7 @@ void FrontDeskPage::onPrintWorkOrder()
             "<tr style='background:#34495e;color:white;'><th>类别</th><th>维修人</th><th>内容</th><th>费用</th></tr>%6</table>"
             "<p style='font-weight:bold;text-align:right;'>合计：¥%7</p>"
             "<hr><p style='color:#7f8c8d;font-size:12px;'>打印时间：%8</p>"
-        ).arg(no, m_dispPlate->text(), m_cmbMainTech->currentText())
+        ).arg(no, m_dispPlate->text(), techSummary)
          .arg(m_spinMileage->value()).arg(m_dateRepair->date().toString("yyyy-MM-dd"))
          .arg(rows).arg(total,0,'f',2)
          .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm"));
@@ -1213,19 +1462,23 @@ QString FrontDeskPage::buildQuoteHtml()
     double laborTotal = 0;
     bool hasItems = false;
     for (auto &row : m_allRows) {
-        QString tech = row.tech->currentText(), cont = row.content->text().trimmed();
+        QString cont = row.content->text().trimmed();
         double fee = row.fee->value();
-        if (tech.isEmpty() && cont.isEmpty() && fee == 0) continue;
+        if (cont.isEmpty() && fee == 0) continue;
         hasItems = true;
         laborTotal += fee;
+        QString techName;
+        if (row.type == "机电")      techName = m_mechTech->currentText();
+        else if (row.type == "钣金") techName = m_bodyTech->currentText();
+        else if (row.type == "喷漆") techName = m_paintTech->currentText();
         repairRows += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td align='right'>¥%4</td></tr>")
-                .arg(row.type, tech.isEmpty() ? "-" : tech,
+                .arg(row.type, techName.isEmpty() ? "-" : techName,
                      cont.isEmpty() ? "-" : cont)
                 .arg(fee, 0, 'f', 2);
     }
 
     // ============ 2. 费用数据 ============
-    double mat  = m_spinMat->value();
+    double mat  = calcPartTotal();
     double oth  = m_spinOther->value();
     double mgmt = m_spinMgmt->value();
     double dep  = m_spinDep->value();
@@ -1349,6 +1602,9 @@ QString FrontDeskPage::buildQuoteHtml()
         "%21"
         "</table>"
 
+        // ---- 第4.5部分：预计部件明细 ----
+        "%28"
+
         // ---- 第五部分：费用汇总 ----
         "<div class='sect-title'>五、费用汇总</div>"
         "<table class='summary'>"
@@ -1376,7 +1632,10 @@ QString FrontDeskPage::buildQuoteHtml()
     .arg(F(sOwner2.isEmpty() ? m_dispOwner->text() : sOwner2))       // %8  车主
     .arg(F(sPhone2.isEmpty() ? m_dispPhone->text() : sPhone2))       // %9  电话
     .arg(F(m_cmbAdvisor->currentText()))               // %10 顾问
-    .arg(F(m_cmbMainTech->currentText()))              // %11 主修人
+    .arg(QString("机电:%1 钣金:%2 喷漆:%3")
+         .arg(F(m_mechTech->currentText()),
+              F(m_bodyTech->currentText()),
+              F(m_paintTech->currentText())))          // %11 主修人
     .arg(F(m_cmbShift->currentText()))                 // %12 班别
     .arg(m_dateRepair->date().toString("yyyy-MM-dd"))  // %13 报修日期
     .arg(m_dateEstimated->date().toString("yyyy-MM-dd")) // %14 预估完工
@@ -1396,7 +1655,21 @@ QString FrontDeskPage::buildQuoteHtml()
     .arg(Y(oth))                                       // %24 其它费
     .arg(Y(mgmt))                                      // %25 管理费
     .arg(Y(dep))                                       // %26 订金
-    .arg(Y(total));                                    // %27 总计
+    .arg(Y(total))                                     // %27 总计
+    .arg([&]() {                                       // %28 预计部件明细
+        if (m_selectedParts.isEmpty()) return QString();
+        QString partsHtml = "<div class='sect-title'>四-B、预计部件明细</div>"
+                            "<table class='repair'>"
+                            "<tr><th style='width:40%;'>部件名称</th><th style='width:30%;'>型号</th>"
+                            "<th style='width:30%;'>单价</th></tr>";
+        for (auto &sp : m_selectedParts) {
+            partsHtml += QString("<tr><td>%1</td><td>%2</td><td align='right'>¥%3</td></tr>")
+                .arg(sp.name, sp.spec.isEmpty() ? "-" : sp.spec)
+                .arg(sp.price, 0, 'f', 2);
+        }
+        partsHtml += "</table>";
+        return partsHtml;
+    }());
 }
 
 // ============================================================
@@ -1453,16 +1726,29 @@ void FrontDeskPage::onExportQuotePdf()
 }
 
 // ============================================================
+// 维修历史数据结构
+// ============================================================
+struct MhOrder {
+    int workorderId;
+    QString orderNo, repairDate, completionDate, advisor, technicians;
+    int mileage;
+    double laborFee, materialFee, otherFee, mgmtFee, deposit, totalAmount, cumulativeAmount;
+    QString partsSummary, repairItemsJson, settlementTime;
+};
+
+// ============================================================
 // 查看维修历史
 // ============================================================
 void FrontDeskPage::onShowMaintenanceHistory()
 {
     if (m_lockedVid == 0) return;
 
-    // 查询维修历史
     QSqlQuery q(DbManager::instance().database());
-    q.prepare("SELECT mh.maintenance_date, mh.total_amount, mh.cumulative_amount, "
-              "mh.parts_summary, mh.repair_summary, w.order_no "
+    q.prepare("SELECT mh.workorder_id, w.order_no, mh.entry_date, mh.completion_date, "
+              "mh.mileage, mh.service_advisor, mh.technicians, "
+              "mh.total_amount, mh.cumulative_amount, mh.labor_fee, mh.material_fee, "
+              "mh.other_fee, mh.management_fee, mh.deposit, "
+              "mh.parts_summary, mh.repair_items, mh.maintenance_date "
               "FROM t_maintenance_history mh "
               "LEFT JOIN t_workorder w ON w.id = mh.workorder_id "
               "WHERE mh.vehicle_id = :vid "
@@ -1470,87 +1756,231 @@ void FrontDeskPage::onShowMaintenanceHistory()
     q.bindValue(":vid", m_lockedVid);
     DbManager::instance().executeQuery(q);
 
-    // 收集数据
-    struct HistRow { QString date, orderNo, parts, repairs, costStr; double cumulative; };
-    QList<HistRow> rows;
-    double runningTotal = 0.0;
+    QList<MhOrder> orders;
+    double allLabor = 0, allMat = 0, allTotal = 0, allDeposit = 0;
     while (q.next()) {
-        HistRow r;
-        r.date    = q.value(0).toDateTime().toString("yyyy-MM-dd hh:mm");
-        double cost = q.value(1).toDouble();
-        runningTotal += cost;
-        r.cumulative = runningTotal;
-        r.costStr = QString::number(cost, 'f', 2);
-        r.orderNo = q.value(5).toString();
-        r.parts   = q.value(3).toString();
-        r.repairs = q.value(4).toString();
-        rows << r;
+        MhOrder o;
+        o.workorderId      = q.value(0).toInt();
+        o.orderNo          = q.value(1).toString();
+        o.repairDate       = q.value(2).isNull() ? "" : q.value(2).toDate().toString("yyyy-MM-dd");
+        o.completionDate   = q.value(3).isNull() ? "" : q.value(3).toDate().toString("yyyy-MM-dd");
+        o.mileage          = q.value(4).toInt();
+        o.advisor          = q.value(5).toString();
+        o.technicians      = q.value(6).toString();
+        o.totalAmount      = q.value(7).toDouble();
+        o.cumulativeAmount = q.value(8).toDouble();
+        o.laborFee         = q.value(9).toDouble();
+        o.materialFee      = q.value(10).toDouble();
+        o.otherFee         = q.value(11).toDouble();
+        o.mgmtFee          = q.value(12).toDouble();
+        o.deposit          = q.value(13).toDouble();
+        o.partsSummary     = q.value(14).toString();
+        o.repairItemsJson  = q.value(15).toString();
+        o.settlementTime   = q.value(16).toDateTime().toString("yyyy-MM-dd HH:mm");
+        orders << o;
+        allLabor += o.laborFee; allMat += o.materialFee;
+        allTotal += o.totalAmount; allDeposit += o.deposit;
     }
 
-    if (rows.isEmpty()) {
+    if (orders.isEmpty()) {
         QMessageBox::information(this, "维修历史",
             QString("车辆 %1 暂无维修历史记录。").arg(m_dispPlate->text()));
         return;
     }
+    int totalCount = orders.size();
 
-    // 构建对话框
+    // ==================== 对话框 ====================
     QDialog dlg(this);
     dlg.setWindowTitle(QString("维修历史 — %1").arg(m_dispPlate->text()));
-    dlg.resize(850, 500);
-    QVBoxLayout *dl = new QVBoxLayout(&dlg);
-    dl->setContentsMargins(10,10,10,10); dl->setSpacing(8);
+    dlg.resize(1050, 620);
 
-    QLabel *header = new QLabel(
-        QString("车辆 %1   共 %2 次维修记录   累计消费 ¥%3")
-        .arg(m_dispPlate->text()).arg(rows.size())
-        .arg(rows.last().cumulative, 0, 'f', 2));
-    header->setStyleSheet("font-size:14px;font-weight:bold;color:#2c3e50;");
-    dl->addWidget(header);
+    QHBoxLayout *mainHL = new QHBoxLayout(&dlg);
+    mainHL->setContentsMargins(8, 8, 8, 8); mainHL->setSpacing(8);
 
-    QTableWidget *table = new QTableWidget(rows.size(), 5, &dlg);
-    table->setHorizontalHeaderLabels({"日期","工单号","维修项目","使用备件","费用(累计)"});
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->setAlternatingRowColors(true);
-    table->verticalHeader()->setVisible(false);
-    table->horizontalHeader()->setStretchLastSection(false);
-    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
-    table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-    table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-    table->setStyleSheet("QHeaderView::section{background-color:#34495e;color:white;padding:5px;}");
+    int selectedIdx = -1;
+    int displayMode = 0; // 0=工时, 1=金额
 
-    for (int i = 0; i < rows.size(); i++) {
-        const auto &r = rows[i];
-        table->setItem(i, 0, new QTableWidgetItem(r.date));
-        table->setItem(i, 1, new QTableWidgetItem(r.orderNo));
-        QTableWidgetItem *repItem = new QTableWidgetItem(r.repairs);
-        repItem->setToolTip(r.repairs);
-        table->setItem(i, 2, repItem);
-        QTableWidgetItem *partItem = new QTableWidgetItem(r.parts);
-        partItem->setToolTip(r.parts);
-        table->setItem(i, 3, partItem);
-        QTableWidgetItem *costItem = new QTableWidgetItem(
-            QString("¥%1 (累计¥%2)").arg(r.costStr).arg(r.cumulative, 0, 'f', 2));
-        costItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        table->setItem(i, 4, costItem);
+    auto getCur = [&]() -> const MhOrder* {
+        if (selectedIdx < 0 || selectedIdx >= orders.size()) return nullptr;
+        return &orders[selectedIdx];
+    };
+
+    // ---- 左侧面板：工单列表 ----
+    QVBoxLayout *leftL = new QVBoxLayout; leftL->setSpacing(4);
+    QLabel *lt = new QLabel("维修工单列表");
+    lt->setStyleSheet("font-weight:bold;font-size:13px;color:#2c3e50;");
+    leftL->addWidget(lt);
+
+    QTableWidget *ot = new QTableWidget(orders.size(), 5);
+    ot->setHorizontalHeaderLabels({"工号","报修日期","完工日期","里程","服务顾问"});
+    ot->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ot->setSelectionMode(QAbstractItemView::SingleSelection);
+    ot->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ot->setAlternatingRowColors(true); ot->verticalHeader()->setVisible(false);
+    ot->horizontalHeader()->setStretchLastSection(true);
+    ot->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:4px;font-size:11px;}");
+    ot->setMaximumWidth(460);
+
+    for (int i = 0; i < orders.size(); i++) {
+        const auto &o = orders[i];
+        ot->setItem(i, 0, new QTableWidgetItem(o.orderNo));
+        ot->setItem(i, 1, new QTableWidgetItem(o.repairDate));
+        ot->setItem(i, 2, new QTableWidgetItem(o.completionDate));
+        ot->setItem(i, 3, new QTableWidgetItem(o.mileage > 0 ? QString::number(o.mileage) : ""));
+        ot->setItem(i, 4, new QTableWidgetItem(o.advisor));
     }
+    leftL->addWidget(ot, 1);
 
-    dl->addWidget(table, 1);
+    // ---- 右侧面板 ----
+    QVBoxLayout *rightL = new QVBoxLayout; rightL->setSpacing(6);
 
-    QHBoxLayout *bb = new QHBoxLayout;
-    bb->addStretch();
-    QPushButton *closeBtn = new QPushButton("关闭");
-    closeBtn->setStyleSheet(
-        "QPushButton{padding:6px 20px;border:none;border-radius:3px;"
-        "background:#3498db;color:#fff;font-weight:bold;}"
-        "QPushButton:hover{background:#2980b9;}");
-    bb->addWidget(closeBtn);
-    dl->addLayout(bb);
-    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    // 统计卡片
+    QGroupBox *statsG = new QGroupBox("车辆总览统计");
+    QHBoxLayout *statsL = new QHBoxLayout(statsG); statsL->setSpacing(8);
+    auto card = [](const QString &l, const QString &v, const QString &c) {
+        QWidget *w = new QWidget;
+        w->setStyleSheet(QString("background:%1;border-radius:6px;padding:8px;").arg(c));
+        QVBoxLayout *cl = new QVBoxLayout(w); cl->setContentsMargins(10,6,10,6);
+        QLabel *vl = new QLabel(v);
+        vl->setStyleSheet("font-size:18px;font-weight:bold;color:#fff;"); vl->setAlignment(Qt::AlignCenter);
+        QLabel *ll = new QLabel(l); ll->setStyleSheet("font-size:11px;color:rgba(255,255,255,0.85);"); ll->setAlignment(Qt::AlignCenter);
+        cl->addWidget(vl); cl->addWidget(ll); return w;
+    };
+    statsL->addWidget(card("总修车费", QString("¥%1").arg(allTotal, 0, 'f', 0), "#e74c3c"));
+    statsL->addWidget(card("总工时费", QString("¥%1").arg(allLabor, 0, 'f', 0), "#2980b9"));
+    statsL->addWidget(card("总材料费", QString("¥%1").arg(allMat, 0, 'f', 0), "#27ae60"));
+    statsL->addWidget(card("总次数", QString("%1 次").arg(totalCount), "#8e44ad"));
+    rightL->addWidget(statsG);
 
+    // 当前工单详情
+    QGroupBox *detG = new QGroupBox("当前工单详情");
+    QVBoxLayout *detL = new QVBoxLayout(detG); detL->setSpacing(4);
+    QLabel *lblFees = new QLabel("请选择左侧工单");
+    lblFees->setStyleSheet("font-size:12px;padding:4px;background:#f8f9fa;border-radius:4px;");
+    lblFees->setWordWrap(true); detL->addWidget(lblFees);
+
+    QHBoxLayout *chkR = new QHBoxLayout;
+    QCheckBox *cbM = new QCheckBox("机电"); cbM->setChecked(true);
+    QCheckBox *cbB = new QCheckBox("钣金"); cbB->setChecked(true);
+    QCheckBox *cbP = new QCheckBox("喷漆"); cbP->setChecked(true);
+    QCheckBox *cbMod = new QCheckBox("修改项目"); cbMod->setStyleSheet("color:#e74c3c;font-weight:bold;");
+    chkR->addWidget(cbM); chkR->addWidget(cbB); chkR->addWidget(cbP); chkR->addStretch(); chkR->addWidget(cbMod);
+    detL->addLayout(chkR);
+    rightL->addWidget(detG);
+
+    // 维修明细
+    QGroupBox *itemG = new QGroupBox("维修明细");
+    QVBoxLayout *itemL = new QVBoxLayout(itemG); itemL->setSpacing(4);
+    QHBoxLayout *modeR = new QHBoxLayout;
+    modeR->addWidget(new QLabel("方式:"));
+    QRadioButton *rb1 = new QRadioButton("工时"); rb1->setChecked(true);
+    QRadioButton *rb2 = new QRadioButton("金额");
+    QButtonGroup *bg = new QButtonGroup(this); bg->addButton(rb1, 0); bg->addButton(rb2, 1);
+    modeR->addWidget(rb1); modeR->addWidget(rb2); modeR->addStretch();
+    itemL->addLayout(modeR);
+
+    QTableWidget *dt = new QTableWidget;
+    dt->setColumnCount(4);
+    dt->setHorizontalHeaderLabels({"类别","维修内容","费用","操作"});
+    dt->setSelectionBehavior(QAbstractItemView::SelectRows);
+    dt->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    dt->verticalHeader()->setVisible(false);
+    dt->horizontalHeader()->setStretchLastSection(false);
+    dt->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    dt->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    dt->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    dt->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    dt->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:3px;font-size:11px;}");
+    itemL->addWidget(dt, 1);
+    rightL->addWidget(itemG, 1);
+
+    // ---- 刷新右侧面板 ----
+    auto refresh = [&]() {
+        const MhOrder *o = getCur();
+        if (!o) { lblFees->setText("请选择左侧工单"); dt->setRowCount(0); return; }
+        double owe = o->totalAmount - o->deposit;
+        lblFees->setText(
+            QString("工时费: ¥%1 | 材料费: ¥%2 | 费用总计: ¥%3 | 欠款: ¥%4 | "
+                    "工时优惠: ¥0.00 | 材料优惠: ¥0.00 | 结算时间: %5")
+            .arg(o->laborFee,0,'f',2).arg(o->materialFee,0,'f',2)
+            .arg(o->totalAmount,0,'f',2).arg(owe,0,'f',2).arg(o->settlementTime));
+
+        QSet<QString> types;
+        if (cbM->isChecked()) types.insert("机电");
+        if (cbB->isChecked()) types.insert("钣金");
+        if (cbP->isChecked()) types.insert("喷漆");
+
+        QList<QStringList> items;
+        QJsonArray arr = QJsonDocument::fromJson(o->repairItemsJson.toUtf8()).array();
+        for (const auto &v : arr) {
+            QJsonObject obj = v.toObject();
+            QString typ = obj["type"].toString();
+            if (!types.contains(typ)) continue;
+            double fee = obj["fee"].toDouble();
+            if (displayMode == 0)
+                items << QStringList({typ, obj["content"].toString(), QString::number(fee,'f',2)});
+            else if (fee > 0)
+                items << QStringList({typ, obj["content"].toString(), QString("¥%1").arg(fee,0,'f',2)});
+        }
+
+        dt->setRowCount(items.size());
+        for (int i = 0; i < items.size(); i++) {
+            dt->setItem(i, 0, new QTableWidgetItem(items[i][0]));
+            dt->setItem(i, 1, new QTableWidgetItem(items[i][1]));
+            dt->setItem(i, 2, new QTableWidgetItem(items[i][2]));
+            QPushButton *bm = new QPushButton("材料明细");
+            bm->setStyleSheet("padding:2px 8px;font-size:11px;background:#3498db;color:#fff;border-radius:2px;");
+            bm->setFixedHeight(22);
+            connect(bm, &QPushButton::clicked, [o, &dlg]() {
+                QDialog md(&dlg);
+                md.setWindowTitle(QString("材料明细 — %1").arg(o->orderNo));
+                md.resize(500, 280);
+                QVBoxLayout *ml = new QVBoxLayout(&md);
+                QTableWidget *mt = new QTableWidget;
+                mt->setColumnCount(4);
+                mt->setHorizontalHeaderLabels({"备件名称","数量","单价","总价"});
+                mt->setSelectionBehavior(QAbstractItemView::SelectRows);
+                mt->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                mt->verticalHeader()->setVisible(false);
+                mt->horizontalHeader()->setStretchLastSection(true);
+                mt->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:3px;}");
+                QSqlQuery mq(DbManager::instance().database());
+                mq.prepare("SELECT part_name, COUNT(*), unit_price, SUM(subtotal) FROM t_workorder_item "
+                           "WHERE workorder_id=:oid AND item_type='材料' GROUP BY part_name, unit_price ORDER BY part_name");
+                mq.bindValue(":oid", o->workorderId); DbManager::instance().executeQuery(mq);
+                int r = 0;
+                while (mq.next()) {
+                    mt->setRowCount(r+1);
+                    mt->setItem(r,0,new QTableWidgetItem(mq.value(0).toString()));
+                    mt->setItem(r,1,new QTableWidgetItem(QString::number(mq.value(1).toInt())));
+                    mt->setItem(r,2,new QTableWidgetItem(QString("¥%1").arg(mq.value(2).toDouble(),0,'f',2)));
+                    mt->setItem(r,3,new QTableWidgetItem(QString("¥%1").arg(mq.value(3).toDouble(),0,'f',2)));
+                    r++;
+                }
+                if (r == 0) mt->setRowCount(1);
+                ml->addWidget(mt, 1);
+                QPushButton *cb2 = new QPushButton("关闭"); cb2->setStyleSheet(S_BTNGH);
+                connect(cb2, &QPushButton::clicked, &md, &QDialog::accept);
+                QHBoxLayout *bb2 = new QHBoxLayout; bb2->addStretch(); bb2->addWidget(cb2);
+                ml->addLayout(bb2);
+                md.exec();
+            });
+            dt->setCellWidget(i, 3, bm);
+        }
+    };
+
+    connect(ot, &QTableWidget::currentCellChanged, [&](int r, int, int, int) {
+        if (r >= 0 && r < orders.size()) { selectedIdx = r; refresh(); }
+    });
+    connect(cbM, &QCheckBox::toggled, [&]() { refresh(); });
+    connect(cbB, &QCheckBox::toggled, [&]() { refresh(); });
+    connect(cbP, &QCheckBox::toggled, [&]() { refresh(); });
+    connect(bg, QOverload<int>::of(&QButtonGroup::idClicked), [&](int id) { displayMode = id; refresh(); });
+
+    mainHL->addLayout(leftL, 3);
+    mainHL->addLayout(rightL, 7);
+
+    if (!orders.isEmpty()) { ot->selectRow(0); selectedIdx = 0; refresh(); }
     dlg.exec();
 }
 

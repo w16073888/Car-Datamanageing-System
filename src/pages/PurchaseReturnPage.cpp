@@ -77,17 +77,24 @@ void PurchaseReturnPage::setupUI()
 
 void PurchaseReturnPage::onSearchPart()
 {
+    // 采购退货仅搜索在库中的备件（基于 t_part_instance）
     QString kw = m_editSearch->text().trimmed();
     QSqlQuery query(DbManager::instance().database());
-    if (kw.isEmpty()) {
-        query.prepare("SELECT id, part_no AS '编号', name AS '名称', stock AS '库存', "
-                      "purchase_price AS '进价', supplier AS '供应商' "
-                      "FROM t_parts WHERE stock > 0 ORDER BY id DESC LIMIT 200");
-    } else {
-        query.prepare("SELECT id, part_no AS '编号', name AS '名称', stock AS '库存', "
-                      "purchase_price AS '进价', supplier AS '供应商' "
-                      "FROM t_parts WHERE (part_no LIKE :kw OR name LIKE :kw2) AND stock > 0 "
-                      "ORDER BY id DESC LIMIT 200");
+    QString sql = QString(
+        "SELECT p.id, p.part_no AS '编号', p.name AS '名称', "
+        "COUNT(CASE WHEN i.status='在库' THEN 1 END) AS '库存', "
+        "COALESCE(p.purchase_price, 0) AS '进价', "
+        "COALESCE(p.supplier, '') AS '供应商' "
+        "FROM t_parts p "
+        "JOIN t_part_instance i ON i.part_id = p.id "
+        "WHERE i.status = '在库'");
+    if (!kw.isEmpty()) {
+        sql += " AND (p.part_no LIKE :kw OR p.name LIKE :kw2)";
+    }
+    sql += " GROUP BY p.id, p.part_no, p.name, p.purchase_price, p.supplier "
+           "ORDER BY p.id DESC LIMIT 200";
+    query.prepare(sql);
+    if (!kw.isEmpty()) {
         query.bindValue(":kw", "%" + kw + "%");
         query.bindValue(":kw2", "%" + kw + "%");
     }
@@ -104,33 +111,57 @@ void PurchaseReturnPage::onReturn()
     int qty = m_spinReturnQty->value();
 
     DbManager::instance().beginTransaction();
-
     QSqlQuery query(DbManager::instance().database());
-    query.prepare("SELECT stock, purchase_price FROM t_parts WHERE id = :id");
-    query.bindValue(":id", m_selectedPartId);
+
+    // 获取在库实例ID列表
+    QList<int> instanceIds;
+    query.prepare("SELECT id FROM t_part_instance "
+                  "WHERE part_id = :pid AND status = '在库' "
+                  "ORDER BY id ASC LIMIT :lim");
+    query.bindValue(":pid", m_selectedPartId);
+    query.bindValue(":lim", qty);
     DbManager::instance().executeQuery(query);
-    if (!query.next()) { DbManager::instance().rollbackTransaction(); return; }
-    int stock = query.value(0).toInt();
-    double price = query.value(1).toDouble();
-    if (qty > stock) {
+    while (query.next()) instanceIds << query.value(0).toInt();
+
+    if (instanceIds.size() < qty) {
         DbManager::instance().rollbackTransaction();
-        QMessageBox::warning(this, "错误", "退货数量超过库存");
+        QMessageBox::warning(this, "错误",
+            QString("当前仅有 %1 件在库可退，退货数量不能超过 %1").arg(instanceIds.size()));
         return;
     }
 
-    query.prepare("UPDATE t_parts SET stock = stock - :qty WHERE id = :id");
-    query.bindValue(":qty", qty);
+    // 获取进价
+    query.prepare("SELECT COALESCE(purchase_price, 0) FROM t_parts WHERE id = :id");
     query.bindValue(":id", m_selectedPartId);
     DbManager::instance().executeQuery(query);
+    double price = query.next() ? query.value(0).toDouble() : 0;
 
-    query.prepare("INSERT INTO t_inventory_log (part_id, quantity, unit_price, total_price, "
-                  "operation_type, operator_id) "
-                  "VALUES (:pid, :qty, :price, :total, '采购退货', :op)");
+    // 逐个实例退货
+    for (int instId : instanceIds) {
+        QSqlQuery u(DbManager::instance().database());
+        u.prepare("UPDATE t_part_instance SET status = '已退货', "
+                  "workorder_id = NULL, vehicle_id = NULL, recipient = NULL, "
+                  "updated_at = NOW() WHERE id = :iid");
+        u.bindValue(":iid", instId);
+        DbManager::instance().executeQuery(u);
+
+        QSqlQuery log(DbManager::instance().database());
+        log.prepare("INSERT INTO t_inventory_log (part_id, part_instance_id, quantity, "
+                    "unit_price, total_price, operation_type, operator_id, remark) "
+                    "VALUES (:pid, :iid, -1, :price, :total, '采购退货', :op, '采购退货')");
+        log.bindValue(":pid", m_selectedPartId);
+        log.bindValue(":iid", instId);
+        log.bindValue(":price", price);
+        log.bindValue(":total", -price);
+        log.bindValue(":op", Session::instance().userId());
+        DbManager::instance().executeQuery(log);
+    }
+
+    // 更新库存缓存
+    query.prepare("UPDATE t_parts SET stock = (SELECT COUNT(*) FROM t_part_instance "
+                  "WHERE part_id = :pid AND status = '在库') WHERE id = :pid2");
     query.bindValue(":pid", m_selectedPartId);
-    query.bindValue(":qty", -qty);
-    query.bindValue(":price", price);
-    query.bindValue(":total", -qty * price);
-    query.bindValue(":op", Session::instance().userId());
+    query.bindValue(":pid2", m_selectedPartId);
     DbManager::instance().executeQuery(query);
 
     DbManager::instance().commitTransaction();

@@ -11,6 +11,7 @@
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QComboBox>
+#include <QTableWidget>
 
 class WarehousePage : public QWidget
 {
@@ -25,9 +26,11 @@ private slots:
     // 备件领取 (Stage 2)
     void onPartsSearch();
     void onPartsIssue();
+    void onIssueOrderSearchTextChanged(const QString &text);
 
     // 材料结算/提单 (Stage 3)
     void onBillingSearchOrder();
+    void onBillingOrderSearchTextChanged(const QString &text);
     void onCompareAndBill();
 
     // 采购入库
@@ -41,7 +44,7 @@ private slots:
     void onReturnSearch();
     void onReturnConfirm();
 
-    // 采购退货
+    // 采购退货（只能操作已领出的备件）
     void onPurchaseReturnSearch();
     void onPurchaseReturnConfirm();
 
@@ -49,6 +52,24 @@ private:
     void setupUI();
     void loadTechCombos();
     void loadPartCombos();
+
+    // 工具函数
+    /// 弹出工单搜索选择框（按工单号/车牌模糊搜索，仅"已派工"工单）
+    bool showWorkOrderSearchPopup(QLineEdit *targetField);
+    /// 生成合并查询SQL: 从 t_parts JOIN t_part_instance，按(part_no,name,spec,supplier)分组
+    /// spec为空时使用 part_no 生成唯一标识防止误合并
+    QString mergedSelectSQL(const QString &extraCols, const QString &whereClause,
+                            const QString &groupBy, const QString &orderBy) const;
+    /// 生成新实例SN: {part_no}-{序号}
+    QString generateInstanceSN(const QString &partNo, int partId) const;
+    /// 获取某备件的在库实例ID列表(前N个)
+    QList<int> getInStockInstanceIds(int partId, int count) const;
+    /// 获取某备件的已领出实例ID列表(前N个)
+    QList<int> getCheckedOutInstanceIds(int partId, int count) const;
+    /// 批量更新实例状态
+    bool updateInstanceStatus(const QList<int> &instanceIds, const QString &newStatus,
+                              int vehicleId = -1, int workorderId = -1,
+                              const QString &recipient = QString());
 
     QTabWidget *m_tabWidget;
 
@@ -63,12 +84,11 @@ private:
     QLabel *m_lblIssuePartInfo;
     QSpinBox *m_spinIssueQty;
     QPushButton *m_btnIssue;
-    int m_issuePartId;
+    int m_issuePartId;          // 选中的备件目录ID (t_parts.id)
 
     // ==================== Tab 1: 材料结算/提单 (Stage 3) ====================
     QWidget *m_tabBilling;
     QLineEdit *m_billingOrderNo;
-    QPushButton *m_btnBillingSearch;
     QLabel *m_lblBillingInfo;
     QTableView *m_billingTable;
     QSqlQueryModel *m_billingModel;
@@ -90,7 +110,7 @@ private:
     QDoubleSpinBox *m_purPrice;
     QSpinBox *m_purQty;
     QPushButton *m_btnPurConfirm;
-    int m_purPartId;
+    int m_purPartId;            // 选中的备件目录ID
 
     // ==================== Tab 3: 库存查询 ====================
     QWidget *m_tabStock;
@@ -108,7 +128,7 @@ private:
     QSqlQueryModel *m_retModel;
     QSpinBox *m_retQty;
     QPushButton *m_btnRetConfirm;
-    int m_retPartId;
+    int m_retPartId;            // 选中的备件目录ID
 
     // ==================== Tab 5: 采购退货 ====================
     QWidget *m_tabPurRet;
@@ -118,7 +138,7 @@ private:
     QSqlQueryModel *m_purRetModel;
     QSpinBox *m_purRetQty;
     QPushButton *m_btnPurRetConfirm;
-    int m_purRetPartId;
+    int m_purRetPartId;         // 选中的备件目录ID
 };
 
 #endif // WAREHOUSEPAGE_H

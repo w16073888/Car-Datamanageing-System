@@ -40,22 +40,25 @@ template <> constexpr inline auto QuotePage::qt_create_metaobjectdata<qt_meta_ta
     namespace QMC = QtMocConstants;
     QtMocHelpers::StringRefStorage qt_stringData {
         "QuotePage",
-        "onLoadOrder",
+        "onOrderSearch",
         "",
-        "onAddItem",
-        "onRemoveItem",
-        "onPrint"
+        "onNotifyBilling",
+        "onSettle",
+        "onSaveToPdf",
+        "onPrintSettlement"
     };
 
     QtMocHelpers::UintData qt_methods {
-        // Slot 'onLoadOrder'
+        // Slot 'onOrderSearch'
         QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onAddItem'
+        // Slot 'onNotifyBilling'
         QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onRemoveItem'
+        // Slot 'onSettle'
         QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPrint'
+        // Slot 'onSaveToPdf'
         QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onPrintSettlement'
+        QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -79,10 +82,11 @@ void QuotePage::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, v
     auto *_t = static_cast<QuotePage *>(_o);
     if (_c == QMetaObject::InvokeMetaMethod) {
         switch (_id) {
-        case 0: _t->onLoadOrder(); break;
-        case 1: _t->onAddItem(); break;
-        case 2: _t->onRemoveItem(); break;
-        case 3: _t->onPrint(); break;
+        case 0: _t->onOrderSearch(); break;
+        case 1: _t->onNotifyBilling(); break;
+        case 2: _t->onSettle(); break;
+        case 3: _t->onSaveToPdf(); break;
+        case 4: _t->onPrintSettlement(); break;
         default: ;
         }
     }
@@ -108,14 +112,14 @@ int QuotePage::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 4)
+        if (_id < 5)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 4;
+        _id -= 5;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 4)
+        if (_id < 5)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 4;
+        _id -= 5;
     }
     return _id;
 }

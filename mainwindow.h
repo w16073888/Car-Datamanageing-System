@@ -101,12 +101,7 @@ private:
     QMenu *m_menuWarehouse;
     QAction *m_actWarehouse;
 
-    // 结算管理
-    QMenu *m_menuSettlement;
-    QAction *m_actSettlement;
-    QAction *m_actSettlementQuery;
-
-    // 报价管理
+    // 结算管理（原报价管理）
     QAction *m_actQuote;
 
     // 财务管理
