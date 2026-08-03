@@ -705,12 +705,13 @@ void FrontDeskPage::loadCombos()
 QString FrontDeskPage::generateOrderNo()
 {
     QSqlQuery q(DbManager::instance().database());
-    QString p = QDate::currentDate().toString("yyyyMMdd");
+    // 编码规则: WO + 年月(6位) + 本月流水(3位)，如 WO202607001
+    QString p = QDate::currentDate().toString("yyyyMM");
     q.prepare("SELECT COUNT(*) FROM t_workorder WHERE order_no LIKE :p");
     q.bindValue(":p","WO"+p+"%");
     DbManager::instance().executeQuery(q);
     int c = 0; if (q.next()) c = q.value(0).toInt();
-    return QString("WO%1%2").arg(p).arg(c+1,4,10,QChar('0'));
+    return QString("WO%1%2").arg(p).arg(c+1,5,10,QChar('0'));
 }
 
 void FrontDeskPage::resetForm()
@@ -1289,7 +1290,8 @@ void FrontDeskPage::onCreateWorkOrder()
 
     double labor = calcRepairFee();
     double mat = calcPartTotal(), oth = m_spinOther->value(), mgmt = m_spinMgmt->value();
-    double total = labor + mat + oth + mgmt;
+    double quoteTotal = labor + mat + oth + mgmt;           // 报价单总价（含预计材料，仅用于打印报价单）
+    double orderTotal = labor + oth + mgmt;                 // 工单金额（不含预计材料）
 
     // 读取三类技工ID
     int mechTechId = m_mechTech->currentData().toInt();
@@ -1316,12 +1318,177 @@ void FrontDeskPage::onCreateWorkOrder()
     qDebug() << "  预估完工:" << m_dateEstimated->date().toString("yyyy-MM-dd");
     qDebug() << "  班别:" << m_cmbShift->currentText();
     qDebug() << "  报修内容:" << m_textContent->toPlainText();
-    qDebug() << "  工时费:" << labor << " 材料费:" << mat << " 其它费:" << oth
+    qDebug() << "  工时费:" << labor << " 预计材料费(仅报价):" << mat << " 其它费:" << oth
              << " 管理费:" << mgmt << " 订金:" << m_spinDep->value();
-    qDebug() << "  总金额:" << total;
+    qDebug() << "  报价单总金额:" << quoteTotal << "  工单金额(不含材料):" << orderTotal;
     qDebug() << "  状态: 已派工";
     qDebug() << "  创建人ID:" << Session::instance().userId();
     qDebug() << "==========================================================";
+
+    // ========== 3. 检查该车辆是否已有派工中的工单 ==========
+    {
+        QSqlQuery checkQ(DbManager::instance().database());
+        checkQ.prepare("SELECT id, order_no, labor_fee, other_fee, management_fee, deposit, total_amount "
+                       "FROM t_workorder WHERE vehicle_id=:vid AND status='已派工' "
+                       "ORDER BY created_at DESC");
+        checkQ.bindValue(":vid", m_lockedVid);
+        DbManager::instance().executeQuery(checkQ);
+
+        QList<QPair<int,QString>> existingOrders; // <workorder_id, order_no>
+        while (checkQ.next()) {
+            existingOrders << qMakePair(checkQ.value(0).toInt(), checkQ.value(1).toString());
+        }
+
+        if (!existingOrders.isEmpty()) {
+            // 有多条派工中工单时，取最新的一条（已按 created_at DESC 排序，第一条即最新）
+            int latestWoid = existingOrders.first().first;
+            QString latestOrderNo = existingOrders.first().second;
+
+            QString msg;
+            if (existingOrders.size() == 1) {
+                msg = QString("该车辆已存在派工中的工单 %1，是否将本次项目叠加到该工单？\n\n"
+                              "选择「创建新工单」将正常创建一份新工单；\n"
+                              "选择「叠加到已有工单」将把本次的工时费条目、其它费、管理费、订金等叠加到已有工单上。")
+                          .arg(latestOrderNo);
+            } else {
+                msg = QString("该车辆存在 %1 个派工中的工单，最新为 %2。\n是否将本次项目叠加到最新工单？\n\n"
+                              "选择「创建新工单」将正常创建一份新工单；\n"
+                              "选择「叠加到已有工单」将把本次的工时费条目、其它费、管理费、订金等叠加到已有工单上。")
+                          .arg(existingOrders.size()).arg(latestOrderNo);
+            }
+
+            QMessageBox mergeBox(this);
+            mergeBox.setWindowTitle("派工确认");
+            mergeBox.setText(msg);
+            mergeBox.setIcon(QMessageBox::Question);
+            QPushButton *btnNew = mergeBox.addButton("创建新工单", QMessageBox::AcceptRole);
+            QPushButton *btnMerge = mergeBox.addButton("叠加到已有工单", QMessageBox::DestructiveRole);
+            QPushButton *btnCancel = mergeBox.addButton("取消", QMessageBox::RejectRole);
+            mergeBox.setDefaultButton(btnNew);
+            mergeBox.exec();
+
+            if (mergeBox.clickedButton() == btnMerge) {
+                // ===== 叠加到已有工单 =====
+                qDebug() << "[onCreateWorkOrder] 叠加到已有工单, woid:" << latestWoid << " orderNo:" << latestOrderNo;
+
+                DbManager::instance().beginTransaction();
+
+                // 更新工单主表：费用相加
+                QSqlQuery upQ(DbManager::instance().database());
+                upQ.prepare("UPDATE t_workorder SET "
+                            "labor_fee = labor_fee + :lf, "
+                            "other_fee = other_fee + :of, "
+                            "management_fee = management_fee + :mgf, "
+                            "deposit = deposit + :dep, "
+                            "total_amount = total_amount + :total "
+                            "WHERE id=:woid");
+                upQ.bindValue(":lf", labor);
+                upQ.bindValue(":of", oth);
+                upQ.bindValue(":mgf", mgmt);
+                upQ.bindValue(":dep", m_spinDep->value());
+                upQ.bindValue(":total", orderTotal);
+                upQ.bindValue(":woid", latestWoid);
+                if (!DbManager::instance().executeQuery(upQ)) {
+                    qWarning() << "[onCreateWorkOrder] 叠加更新工单失败:" << upQ.lastError().text();
+                    DbManager::instance().rollbackTransaction();
+                    QMessageBox::warning(this, "失败", "叠加更新工单失败: " + upQ.lastError().text());
+                    return;
+                }
+
+                // 插入新的维修项目明细
+                for (auto &row : m_allRows) {
+                    QString cont = row.content->text().trimmed();
+                    double fee = row.fee->value();
+                    if (cont.isEmpty() && fee == 0) continue;
+                    int techId = 0;
+                    QString techName;
+                    if (row.type == "机电")      { techId = mechTechId;  techName = m_mechTech->currentText(); }
+                    else if (row.type == "钣金") { techId = bodyTechId;  techName = m_bodyTech->currentText(); }
+                    else if (row.type == "喷漆") { techId = paintTechId; techName = m_paintTech->currentText(); }
+                    QSqlQuery insItem(DbManager::instance().database());
+                    insItem.prepare("INSERT INTO t_workorder_repair_item (workorder_id,item_type,repair_person,repair_content,fee) "
+                                    "VALUES (:woid,:type,:person,:cont,:fee)");
+                    insItem.bindValue(":woid", latestWoid);
+                    insItem.bindValue(":type", row.type);
+                    insItem.bindValue(":person", techName.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : techName);
+                    insItem.bindValue(":cont", cont);
+                    insItem.bindValue(":fee", fee);
+                    DbManager::instance().executeQuery(insItem);
+
+                    if (techId > 0) {
+                        QSqlQuery insRec(DbManager::instance().database());
+                        insRec.prepare("INSERT INTO t_technician_work_record (workorder_id,technician_id,item_type,work_content,fee) "
+                                       "VALUES (:woid,:tid,:type,:cont,:fee)");
+                        insRec.bindValue(":woid", latestWoid);
+                        insRec.bindValue(":tid", techId);
+                        insRec.bindValue(":type", row.type);
+                        insRec.bindValue(":cont", cont);
+                        insRec.bindValue(":fee", fee);
+                        DbManager::instance().executeQuery(insRec);
+                    }
+                }
+
+                // 更新维修历史：费用相加，追记维修项目
+                {
+                    QSqlQuery mhUp(DbManager::instance().database());
+                    mhUp.prepare("UPDATE t_maintenance_history SET "
+                                 "labor_fee = labor_fee + :lf, "
+                                 "other_fee = other_fee + :of, "
+                                 "management_fee = management_fee + :mgf, "
+                                 "deposit = deposit + :dep, "
+                                 "total_amount = total_amount + :total, "
+                                 "cumulative_amount = cumulative_amount + :total "
+                                 "WHERE workorder_id=:woid");
+                    mhUp.bindValue(":lf", labor);
+                    mhUp.bindValue(":of", oth);
+                    mhUp.bindValue(":mgf", mgmt);
+                    mhUp.bindValue(":dep", m_spinDep->value());
+                    mhUp.bindValue(":total", orderTotal);
+                    mhUp.bindValue(":woid", latestWoid);
+                    DbManager::instance().executeQuery(mhUp);
+                }
+
+                // 记录车辆交易
+                {
+                    QSqlQuery transQ(DbManager::instance().database());
+                    transQ.prepare("INSERT INTO t_vehicle_transaction (vehicle_id,workorder_id,transaction_type,description,operator_id) "
+                                   "VALUES (:vid,:woid,'进厂维修',:desc,:op)");
+                    transQ.bindValue(":vid", m_lockedVid);
+                    transQ.bindValue(":woid", latestWoid);
+                    transQ.bindValue(":desc", QString("叠加项目到工单 %1").arg(latestOrderNo));
+                    transQ.bindValue(":op", Session::instance().userId());
+                    DbManager::instance().executeQuery(transQ);
+                }
+
+                // 更新车辆公里数
+                {
+                    QSqlQuery mileQ(DbManager::instance().database());
+                    mileQ.prepare("UPDATE t_vehicle SET current_mileage=:mile WHERE id=:vid");
+                    mileQ.bindValue(":mile", m_spinMileage->value());
+                    mileQ.bindValue(":vid", m_lockedVid);
+                    DbManager::instance().executeQuery(mileQ);
+                }
+
+                DbManager::instance().commitTransaction();
+
+                QMessageBox::information(this, "叠加成功",
+                    QString("本次项目已叠加到工单 %1\n新增工时费: ¥%2\n新增其它费: ¥%3\n新增管理费: ¥%4\n新增订金: ¥%5\n新增合计: ¥%6")
+                        .arg(latestOrderNo)
+                        .arg(labor, 0, 'f', 2)
+                        .arg(oth, 0, 'f', 2)
+                        .arg(mgmt, 0, 'f', 2)
+                        .arg(m_spinDep->value(), 0, 'f', 2)
+                        .arg(orderTotal, 0, 'f', 2));
+                emit workOrderCreated(latestWoid, latestOrderNo);
+                onClearVehicle();
+                return;
+            } else if (mergeBox.clickedButton() == btnCancel) {
+                // 用户取消
+                return;
+            }
+            // 点击"创建新工单" → 继续执行下面的原有逻辑
+        }
+    }
 
     DbManager::instance().beginTransaction();
     QSqlQuery q(DbManager::instance().database());
@@ -1342,8 +1509,8 @@ void FrontDeskPage::onCreateWorkOrder()
     q.bindValue(":rd",m_dateRepair->date()); q.bindValue(":ed",m_dateEstimated->date());
     q.bindValue(":sh",m_cmbShift->currentText());
     q.bindValue(":mtech", compatTechName.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : compatTechName);
-    q.bindValue(":mf",mat); q.bindValue(":of",oth); q.bindValue(":mgf",mgmt);
-    q.bindValue(":lf",labor); q.bindValue(":total",total); q.bindValue(":dep",m_spinDep->value());
+    q.bindValue(":mf",0); q.bindValue(":of",oth); q.bindValue(":mgf",mgmt);
+    q.bindValue(":lf",labor); q.bindValue(":total",orderTotal); q.bindValue(":dep",m_spinDep->value());
     q.bindValue(":creator",Session::instance().userId());
     if (!DbManager::instance().executeQuery(q)) {
         qWarning() << "[onCreateWorkOrder] 工单插入失败! 错误:" << q.lastError().text();
@@ -1355,6 +1522,52 @@ void FrontDeskPage::onCreateWorkOrder()
     qDebug() << "[onCreateWorkOrder] 工单主表插入成功, lastInsertId:" << q.lastInsertId().toInt();
 
     int woid = q.lastInsertId().toInt();
+
+    // 写入维修历史（创建时）
+    QStringList techNames, repairJsonParts, repairSummaryParts;
+    for (auto &row : m_allRows) {
+        QString cont = row.content->text().trimmed();
+        double fee = row.fee->value();
+        if (cont.isEmpty() && fee == 0) continue;
+        QString techName;
+        if (row.type == "机电")      techName = m_mechTech->currentText();
+        else if (row.type == "钣金") techName = m_bodyTech->currentText();
+        else if (row.type == "喷漆") techName = m_paintTech->currentText();
+        if (!techName.isEmpty() && !techNames.contains(techName)) techNames << techName;
+        repairJsonParts << QString("{\"type\":\"%1\",\"person\":\"%2\",\"content\":\"%3\",\"fee\":%4}")
+            .arg(row.type, techName, cont, QString::number(fee, 'f', 2));
+        repairSummaryParts << QString("[%1] %2 ¥%3").arg(row.type, cont, QString::number(fee, 'f', 2));
+    }
+    QString rj = "[" + repairJsonParts.join(",") + "]";
+    QString rs = repairSummaryParts.join("; ");
+    QSqlQuery mh(DbManager::instance().database());
+    mh.prepare("INSERT INTO t_maintenance_history "
+               "(vehicle_id, workorder_id, status, entry_date, mileage, service_advisor, "
+               "technicians, labor_fee, material_fee, other_fee, management_fee, deposit, "
+               "total_amount, cumulative_amount, repair_summary, repair_items) "
+               "VALUES (:vid, :woid, '已派工', :entry, :mile, :svc, :tech, "
+               ":labor, 0, :other, :mgmt, :dep, :total, :total, :repair, :ritems) "
+               "ON DUPLICATE KEY UPDATE status='已派工', entry_date=VALUES(entry_date), "
+               "mileage=VALUES(mileage), service_advisor=VALUES(service_advisor), "
+               "technicians=VALUES(technicians), labor_fee=VALUES(labor_fee), "
+               "other_fee=VALUES(other_fee), management_fee=VALUES(management_fee), "
+               "deposit=VALUES(deposit), total_amount=VALUES(total_amount), "
+               "repair_summary=VALUES(repair_summary), repair_items=VALUES(repair_items)");
+    mh.bindValue(":vid", m_lockedVid);
+    mh.bindValue(":woid", woid);
+    mh.bindValue(":entry", m_dateRepair->date());
+    mh.bindValue(":mile", m_spinMileage->value());
+    mh.bindValue(":svc", m_cmbAdvisor->currentText().isEmpty() ? QVariant(QMetaType::fromType<QString>()) : m_cmbAdvisor->currentText());
+    mh.bindValue(":tech", techNames.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : techNames.join(", "));
+    mh.bindValue(":labor", labor);
+    mh.bindValue(":other", oth);
+    mh.bindValue(":mgmt", mgmt);
+    mh.bindValue(":dep", m_spinDep->value());
+    mh.bindValue(":total", orderTotal);
+    mh.bindValue(":repair", rs.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : rs);
+    mh.bindValue(":ritems", rj == "[]" ? QVariant(QMetaType::fromType<QString>()) : rj);
+    DbManager::instance().executeQuery(mh);
+
     for (auto &row : m_allRows) {
         QString cont = row.content->text().trimmed();
         double fee = row.fee->value();
@@ -1379,15 +1592,7 @@ void FrontDeskPage::onCreateWorkOrder()
             DbManager::instance().executeQuery(q);
         }
     }
-    // 保存预计部件到工单备件明细
-    for (auto &sp : m_selectedParts) {
-        q.prepare("INSERT INTO t_workorder_item (workorder_id, part_id, part_name, quantity, unit_price, item_type) "
-                  "VALUES (:woid, NULL, :name, 1, :price, '材料')");
-        q.bindValue(":woid", woid);
-        q.bindValue(":name", sp.name);
-        q.bindValue(":price", sp.price);
-        DbManager::instance().executeQuery(q);
-    }
+    // 预计材料仅用于报价单打印，不与工单绑定、不计入工单金额
     q.prepare("INSERT INTO t_vehicle_transaction (vehicle_id,workorder_id,transaction_type,description,operator_id) "
               "VALUES (:vid,:woid,'进厂维修',:desc,:op)");
     q.bindValue(":vid",m_lockedVid); q.bindValue(":woid",woid);
@@ -1395,15 +1600,17 @@ void FrontDeskPage::onCreateWorkOrder()
     q.bindValue(":op",Session::instance().userId());
     DbManager::instance().executeQuery(q);
 
-    // 更新车辆档案中的公里数
-    q.prepare("UPDATE t_vehicle SET current_mileage=:mile WHERE id=:vid");
+    // 更新车辆档案中的公里数（同时记录为上次保养公里数）
+    q.prepare("UPDATE t_vehicle SET current_mileage=:mile, last_maintenance_mileage=:mile2 WHERE id=:vid");
     q.bindValue(":mile", m_spinMileage->value());
+    q.bindValue(":mile2", m_spinMileage->value());
     q.bindValue(":vid", m_lockedVid);
     DbManager::instance().executeQuery(q);
 
     DbManager::instance().commitTransaction();
 
-    QMessageBox::information(this,"派工成功",QString("工单 %1 已创建\n总费用: ¥%2").arg(orderNo).arg(total,0,'f',2));
+    QMessageBox::information(this,"派工成功",QString("工单 %1 已创建\n工单金额: ¥%2\n报价金额(含预计材料): ¥%3")
+        .arg(orderNo).arg(orderTotal,0,'f',2).arg(quoteTotal,0,'f',2));
     emit workOrderCreated(woid, orderNo);
     onClearVehicle();  // 内含 setState(STATE_SEARCH)
 }
@@ -1730,7 +1937,7 @@ void FrontDeskPage::onExportQuotePdf()
 // ============================================================
 struct MhOrder {
     int workorderId;
-    QString orderNo, repairDate, completionDate, advisor, technicians;
+    QString orderNo, status, repairDate, completionDate, advisor, technicians;
     int mileage;
     double laborFee, materialFee, otherFee, mgmtFee, deposit, totalAmount, cumulativeAmount;
     QString partsSummary, repairItemsJson, settlementTime;
@@ -1744,15 +1951,27 @@ void FrontDeskPage::onShowMaintenanceHistory()
     if (m_lockedVid == 0) return;
 
     QSqlQuery q(DbManager::instance().database());
-    q.prepare("SELECT mh.workorder_id, w.order_no, mh.entry_date, mh.completion_date, "
-              "mh.mileage, mh.service_advisor, mh.technicians, "
-              "mh.total_amount, mh.cumulative_amount, mh.labor_fee, mh.material_fee, "
-              "mh.other_fee, mh.management_fee, mh.deposit, "
-              "mh.parts_summary, mh.repair_items, mh.maintenance_date "
-              "FROM t_maintenance_history mh "
-              "LEFT JOIN t_workorder w ON w.id = mh.workorder_id "
-              "WHERE mh.vehicle_id = :vid "
-              "ORDER BY mh.maintenance_date ASC, mh.id ASC");
+    // 以 t_workorder 为主表 LEFT JOIN t_maintenance_history，显示所有状态的工单
+    q.prepare("SELECT w.id AS workorder_id, w.order_no, w.status, "
+              "COALESCE(mh.entry_date, w.repair_date, w.created_at) AS entry_date, "
+              "mh.completion_date, "
+              "COALESCE(mh.mileage, w.mileage) AS mileage, "
+              "COALESCE(mh.service_advisor, '') AS service_advisor, "
+              "COALESCE(mh.technicians, '') AS technicians, "
+              "COALESCE(mh.total_amount, w.total_amount, 0) AS total_amount, "
+              "COALESCE(mh.cumulative_amount, 0) AS cumulative_amount, "
+              "COALESCE(mh.labor_fee, w.labor_fee, 0) AS labor_fee, "
+              "COALESCE(mh.material_fee, w.material_fee, 0) AS material_fee, "
+              "COALESCE(mh.other_fee, w.other_fee, 0) AS other_fee, "
+              "COALESCE(mh.management_fee, w.management_fee, 0) AS management_fee, "
+              "COALESCE(mh.deposit, w.deposit, 0) AS deposit, "
+              "COALESCE(mh.parts_summary, '') AS parts_summary, "
+              "COALESCE(mh.repair_items, '') AS repair_items, "
+              "COALESCE(mh.maintenance_date, w.created_at) AS maintenance_date "
+              "FROM t_workorder w "
+              "LEFT JOIN t_maintenance_history mh ON mh.workorder_id = w.id "
+              "WHERE w.vehicle_id = :vid "
+              "ORDER BY w.created_at ASC, w.id ASC");
     q.bindValue(":vid", m_lockedVid);
     DbManager::instance().executeQuery(q);
 
@@ -1762,21 +1981,22 @@ void FrontDeskPage::onShowMaintenanceHistory()
         MhOrder o;
         o.workorderId      = q.value(0).toInt();
         o.orderNo          = q.value(1).toString();
-        o.repairDate       = q.value(2).isNull() ? "" : q.value(2).toDate().toString("yyyy-MM-dd");
-        o.completionDate   = q.value(3).isNull() ? "" : q.value(3).toDate().toString("yyyy-MM-dd");
-        o.mileage          = q.value(4).toInt();
-        o.advisor          = q.value(5).toString();
-        o.technicians      = q.value(6).toString();
-        o.totalAmount      = q.value(7).toDouble();
-        o.cumulativeAmount = q.value(8).toDouble();
-        o.laborFee         = q.value(9).toDouble();
-        o.materialFee      = q.value(10).toDouble();
-        o.otherFee         = q.value(11).toDouble();
-        o.mgmtFee          = q.value(12).toDouble();
-        o.deposit          = q.value(13).toDouble();
-        o.partsSummary     = q.value(14).toString();
-        o.repairItemsJson  = q.value(15).toString();
-        o.settlementTime   = q.value(16).toDateTime().toString("yyyy-MM-dd HH:mm");
+        o.status           = q.value(2).toString();
+        o.repairDate       = q.value(3).isNull() ? "" : q.value(3).toDate().toString("yyyy-MM-dd");
+        o.completionDate   = q.value(4).isNull() ? "" : q.value(4).toDate().toString("yyyy-MM-dd");
+        o.mileage          = q.value(5).toInt();
+        o.advisor          = q.value(6).toString();
+        o.technicians      = q.value(7).toString();
+        o.totalAmount      = q.value(8).toDouble();
+        o.cumulativeAmount = q.value(9).toDouble();
+        o.laborFee         = q.value(10).toDouble();
+        o.materialFee      = q.value(11).toDouble();
+        o.otherFee         = q.value(12).toDouble();
+        o.mgmtFee          = q.value(13).toDouble();
+        o.deposit          = q.value(14).toDouble();
+        o.partsSummary     = q.value(15).toString();
+        o.repairItemsJson  = q.value(16).toString();
+        o.settlementTime   = q.value(17).toDateTime().toString("yyyy-MM-dd HH:mm");
         orders << o;
         allLabor += o.laborFee; allMat += o.materialFee;
         allTotal += o.totalAmount; allDeposit += o.deposit;
@@ -1798,7 +2018,7 @@ void FrontDeskPage::onShowMaintenanceHistory()
     mainHL->setContentsMargins(8, 8, 8, 8); mainHL->setSpacing(8);
 
     int selectedIdx = -1;
-    int displayMode = 0; // 0=工时, 1=金额
+    int displayMode = 0; // 0=工时, 1=材料
 
     auto getCur = [&]() -> const MhOrder* {
         if (selectedIdx < 0 || selectedIdx >= orders.size()) return nullptr;
@@ -1811,23 +2031,29 @@ void FrontDeskPage::onShowMaintenanceHistory()
     lt->setStyleSheet("font-weight:bold;font-size:13px;color:#2c3e50;");
     leftL->addWidget(lt);
 
-    QTableWidget *ot = new QTableWidget(orders.size(), 5);
-    ot->setHorizontalHeaderLabels({"工号","报修日期","完工日期","里程","服务顾问"});
+    QTableWidget *ot = new QTableWidget(orders.size(), 6);
+    ot->setHorizontalHeaderLabels({"工号","状态","报修日期","完工日期","里程","服务顾问"});
     ot->setSelectionBehavior(QAbstractItemView::SelectRows);
     ot->setSelectionMode(QAbstractItemView::SingleSelection);
     ot->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ot->setAlternatingRowColors(true); ot->verticalHeader()->setVisible(false);
     ot->horizontalHeader()->setStretchLastSection(true);
     ot->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:4px;font-size:11px;}");
-    ot->setMaximumWidth(460);
+    ot->setMaximumWidth(520);
 
     for (int i = 0; i < orders.size(); i++) {
         const auto &o = orders[i];
         ot->setItem(i, 0, new QTableWidgetItem(o.orderNo));
-        ot->setItem(i, 1, new QTableWidgetItem(o.repairDate));
-        ot->setItem(i, 2, new QTableWidgetItem(o.completionDate));
-        ot->setItem(i, 3, new QTableWidgetItem(o.mileage > 0 ? QString::number(o.mileage) : ""));
-        ot->setItem(i, 4, new QTableWidgetItem(o.advisor));
+        QTableWidgetItem *stItem = new QTableWidgetItem(o.status);
+        if (o.status == "已结算") stItem->setForeground(QColor("#27ae60"));
+        else if (o.status == "已提单") stItem->setForeground(QColor("#8e44ad"));
+        else if (o.status == "待提单") stItem->setForeground(QColor("#e67e22"));
+        else stItem->setForeground(QColor("#2980b9"));
+        ot->setItem(i, 1, stItem);
+        ot->setItem(i, 2, new QTableWidgetItem(o.repairDate));
+        ot->setItem(i, 3, new QTableWidgetItem(o.completionDate));
+        ot->setItem(i, 4, new QTableWidgetItem(o.mileage > 0 ? QString::number(o.mileage) : ""));
+        ot->setItem(i, 5, new QTableWidgetItem(o.advisor));
     }
     leftL->addWidget(ot, 1);
 
@@ -1874,18 +2100,18 @@ void FrontDeskPage::onShowMaintenanceHistory()
     QHBoxLayout *modeR = new QHBoxLayout;
     modeR->addWidget(new QLabel("方式:"));
     QRadioButton *rb1 = new QRadioButton("工时"); rb1->setChecked(true);
-    QRadioButton *rb2 = new QRadioButton("金额");
+    QRadioButton *rb2 = new QRadioButton("材料");
     QButtonGroup *bg = new QButtonGroup(this); bg->addButton(rb1, 0); bg->addButton(rb2, 1);
     modeR->addWidget(rb1); modeR->addWidget(rb2); modeR->addStretch();
     itemL->addLayout(modeR);
 
     QTableWidget *dt = new QTableWidget;
     dt->setColumnCount(4);
-    dt->setHorizontalHeaderLabels({"类别","维修内容","费用","操作"});
+    dt->setHorizontalHeaderLabels({"类别","主修人/维修内容","费用",""});
     dt->setSelectionBehavior(QAbstractItemView::SelectRows);
     dt->setEditTriggers(QAbstractItemView::NoEditTriggers);
     dt->verticalHeader()->setVisible(false);
-    dt->horizontalHeader()->setStretchLastSection(false);
+    dt->horizontalHeader()->setStretchLastSection(true);
     dt->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     dt->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     dt->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -1905,67 +2131,89 @@ void FrontDeskPage::onShowMaintenanceHistory()
             .arg(o->laborFee,0,'f',2).arg(o->materialFee,0,'f',2)
             .arg(o->totalAmount,0,'f',2).arg(owe,0,'f',2).arg(o->settlementTime));
 
-        QSet<QString> types;
-        if (cbM->isChecked()) types.insert("机电");
-        if (cbB->isChecked()) types.insert("钣金");
-        if (cbP->isChecked()) types.insert("喷漆");
+        if (displayMode == 0) {
+            // ========== 工时模式 ==========
+            dt->setHorizontalHeaderLabels({"类别","主修人/维修内容","费用",""});
+            dt->setColumnHidden(3, true);
 
-        QList<QStringList> items;
-        QJsonArray arr = QJsonDocument::fromJson(o->repairItemsJson.toUtf8()).array();
-        for (const auto &v : arr) {
-            QJsonObject obj = v.toObject();
-            QString typ = obj["type"].toString();
-            if (!types.contains(typ)) continue;
-            double fee = obj["fee"].toDouble();
-            if (displayMode == 0)
-                items << QStringList({typ, obj["content"].toString(), QString::number(fee,'f',2)});
-            else if (fee > 0)
-                items << QStringList({typ, obj["content"].toString(), QString("¥%1").arg(fee,0,'f',2)});
-        }
+            QSet<QString> types;
+            if (cbM->isChecked()) types.insert("机电");
+            if (cbB->isChecked()) types.insert("钣金");
+            if (cbP->isChecked()) types.insert("喷漆");
 
-        dt->setRowCount(items.size());
-        for (int i = 0; i < items.size(); i++) {
-            dt->setItem(i, 0, new QTableWidgetItem(items[i][0]));
-            dt->setItem(i, 1, new QTableWidgetItem(items[i][1]));
-            dt->setItem(i, 2, new QTableWidgetItem(items[i][2]));
-            QPushButton *bm = new QPushButton("材料明细");
-            bm->setStyleSheet("padding:2px 8px;font-size:11px;background:#3498db;color:#fff;border-radius:2px;");
-            bm->setFixedHeight(22);
-            connect(bm, &QPushButton::clicked, [o, &dlg]() {
-                QDialog md(&dlg);
-                md.setWindowTitle(QString("材料明细 — %1").arg(o->orderNo));
-                md.resize(500, 280);
-                QVBoxLayout *ml = new QVBoxLayout(&md);
-                QTableWidget *mt = new QTableWidget;
-                mt->setColumnCount(4);
-                mt->setHorizontalHeaderLabels({"备件名称","数量","单价","总价"});
-                mt->setSelectionBehavior(QAbstractItemView::SelectRows);
-                mt->setEditTriggers(QAbstractItemView::NoEditTriggers);
-                mt->verticalHeader()->setVisible(false);
-                mt->horizontalHeader()->setStretchLastSection(true);
-                mt->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:3px;}");
-                QSqlQuery mq(DbManager::instance().database());
-                mq.prepare("SELECT part_name, COUNT(*), unit_price, SUM(subtotal) FROM t_workorder_item "
-                           "WHERE workorder_id=:oid AND item_type='材料' GROUP BY part_name, unit_price ORDER BY part_name");
-                mq.bindValue(":oid", o->workorderId); DbManager::instance().executeQuery(mq);
-                int r = 0;
-                while (mq.next()) {
-                    mt->setRowCount(r+1);
-                    mt->setItem(r,0,new QTableWidgetItem(mq.value(0).toString()));
-                    mt->setItem(r,1,new QTableWidgetItem(QString::number(mq.value(1).toInt())));
-                    mt->setItem(r,2,new QTableWidgetItem(QString("¥%1").arg(mq.value(2).toDouble(),0,'f',2)));
-                    mt->setItem(r,3,new QTableWidgetItem(QString("¥%1").arg(mq.value(3).toDouble(),0,'f',2)));
-                    r++;
+            QList<QStringList> items;
+            // 优先从 repair_items JSON 解析维修明细
+            QString jsonStr = o->repairItemsJson.trimmed();
+            if (!jsonStr.isEmpty()) {
+                QJsonArray arr = QJsonDocument::fromJson(jsonStr.toUtf8()).array();
+                for (const auto &v : arr) {
+                    QJsonObject obj = v.toObject();
+                    QString typ = obj["type"].toString();
+                    if (!types.contains(typ)) continue;
+                    QString person = obj["person"].toString();
+                    QString content = obj["content"].toString();
+                    double fee = obj["fee"].toDouble();
+                    QString detail = QString("%1 — %2")
+                                    .arg(person.isEmpty() ? "-" : person,
+                                         content.isEmpty() ? "(无内容)" : content);
+                    items << QStringList({typ, detail, QString::number(fee, 'f', 2)});
                 }
-                if (r == 0) mt->setRowCount(1);
-                ml->addWidget(mt, 1);
-                QPushButton *cb2 = new QPushButton("关闭"); cb2->setStyleSheet(S_BTNGH);
-                connect(cb2, &QPushButton::clicked, &md, &QDialog::accept);
-                QHBoxLayout *bb2 = new QHBoxLayout; bb2->addStretch(); bb2->addWidget(cb2);
-                ml->addLayout(bb2);
-                md.exec();
-            });
-            dt->setCellWidget(i, 3, bm);
+            }
+
+            // fallback: 如果 JSON 为空，直接从 t_workorder_repair_item 表查询
+            if (items.isEmpty()) {
+                QSqlQuery rq(DbManager::instance().database());
+                rq.prepare("SELECT item_type, repair_person, repair_content, fee "
+                           "FROM t_workorder_repair_item "
+                           "WHERE workorder_id = :oid ORDER BY item_type, id");
+                rq.bindValue(":oid", o->workorderId);
+                DbManager::instance().executeQuery(rq);
+                while (rq.next()) {
+                    QString typ = rq.value(0).toString();
+                    if (!types.contains(typ)) continue;
+                    QString person = rq.value(1).toString();
+                    QString content = rq.value(2).toString();
+                    double fee = rq.value(3).toDouble();
+                    QString detail = QString("%1 — %2")
+                                    .arg(person.isEmpty() ? "-" : person,
+                                         content.isEmpty() ? "(无内容)" : content);
+                    items << QStringList({typ, detail, QString::number(fee, 'f', 2)});
+                }
+            }
+
+            dt->setRowCount(items.size());
+            for (int i = 0; i < items.size(); i++) {
+                dt->setItem(i, 0, new QTableWidgetItem(items[i][0]));
+                dt->setItem(i, 1, new QTableWidgetItem(items[i][1]));
+                dt->setItem(i, 2, new QTableWidgetItem(items[i][2]));
+                dt->removeCellWidget(i, 3); // 清除可能的旧widget
+            }
+        } else {
+            // ========== 材料模式 ==========
+            dt->setHorizontalHeaderLabels({"备件名称","数量","单价","总价"});
+            dt->setColumnHidden(3, false);
+
+            QSqlQuery mq(DbManager::instance().database());
+            mq.prepare("SELECT part_name, COUNT(*) AS qty, unit_price, SUM(subtotal) AS subtotal "
+                       "FROM t_workorder_item "
+                       "WHERE workorder_id = :oid AND item_type = '材料' "
+                       "GROUP BY part_name, unit_price ORDER BY part_name");
+            mq.bindValue(":oid", o->workorderId);
+            DbManager::instance().executeQuery(mq);
+
+            int r = 0;
+            while (mq.next()) {
+                dt->setRowCount(r + 1);
+                dt->setItem(r, 0, new QTableWidgetItem(mq.value(0).toString()));
+                dt->setItem(r, 1, new QTableWidgetItem(QString::number(mq.value(1).toInt())));
+                dt->setItem(r, 2, new QTableWidgetItem(QString("¥%1").arg(mq.value(2).toDouble(), 0, 'f', 2)));
+                dt->setItem(r, 3, new QTableWidgetItem(QString("¥%1").arg(mq.value(3).toDouble(), 0, 'f', 2)));
+                r++;
+            }
+            if (r == 0) {
+                dt->setRowCount(1);
+                dt->setItem(0, 0, new QTableWidgetItem("（无材料记录）"));
+            }
         }
     };
 

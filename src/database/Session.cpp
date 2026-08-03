@@ -64,7 +64,51 @@ QString Session::position() const
 
 bool Session::hasPermission(const QString &menuPath) const
 {
-    Q_UNUSED(menuPath)
-    // 按需求: 暂时所有职位拥有全部权限
-    return m_loggedIn;
+    if (!m_loggedIn)
+        return false;
+
+    // 经理：全开放
+    if (m_position == "经理")
+        return true;
+
+    // 员工管理：仅经理可访问，其余职位一律关闭
+    if (menuPath == "员工管理")
+        return false;
+
+    // 库管：关闭 前台业务 / 服务跟踪
+    if (m_position == "库管"
+        && (menuPath == "前台业务" || menuPath == "服务跟踪"))
+        return false;
+
+    // 前台 / 客服：关闭 库房管理
+    if ((m_position == "前台" || m_position == "客服")
+        && menuPath == "库房管理")
+        return false;
+
+    return true;
+}
+
+bool Session::canDeleteDataTable(const QString &tableName) const
+{
+    if (!m_loggedIn)
+        return false;
+
+    // 经理：全部表可删除
+    if (m_position == "经理")
+        return true;
+
+    // 回访记录表：前台/客服可删除（删除 = 清除该工单的回访信息）
+    if (tableName == "回访记录")
+        return (m_position == "前台" || m_position == "客服");
+
+    // 前台：仅工单表可删除（onDelete 中仍校验“仅已派工”状态）
+    if (m_position == "前台")
+        return tableName == "t_workorder";
+
+    // 库管：仅备件表可删除
+    if (m_position == "库管")
+        return tableName == "t_parts";
+
+    // 客服：无其它删除权限；未知职位默认按最严格处理
+    return false;
 }

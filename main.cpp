@@ -41,8 +41,8 @@ int main(int argc, char *argv[])
         QSqlQuery mq(DbManager::instance().database());
 
         // 迁移: 更新 t_workorder.status ENUM
-        //   - 移除 '已完工' 状态（流程简化: 已派工→库房直接提单→已结算）
-        //   - 将已有的 '已完工' 记录迁移为 '维修中'
+        //   - 移除 '已完工' 和 '维修中' 状态（流程简化: 已派工→库房直接提单→已结算）
+        //   - 将已有的 '已完工'、'维修中' 记录迁移为 '已派工'
         mq.exec("SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
                 "WHERE TABLE_SCHEMA='garagedb' AND TABLE_NAME='t_workorder' AND COLUMN_NAME='status'");
         if (mq.next()) {
@@ -50,18 +50,25 @@ int main(int argc, char *argv[])
             qDebug() << "[main] 当前 t_workorder.status 列类型:" << curType;
             bool hasDispatched = curType.contains("已派工");
             bool hasFinished   = curType.contains("已完工");
+            bool hasRepairing  = curType.contains("维修中");
 
-            if (!hasDispatched || hasFinished || !curType.contains("待提单") || curType.contains("待派工")) {
-                // 目标 ENUM: 已派工,待提单,维修中,已提单,已结算 (移除待派工)
+            if (!hasDispatched || hasFinished || hasRepairing
+                || !curType.contains("待提单") || curType.contains("待派工")) {
+                // 目标 ENUM: 已派工,待提单,已提单,已结算 (移除待派工/已完工/维修中)
                 if (hasFinished) {
-                    qDebug() << "[main] 将 '已完工' 记录迁移为 '维修中'...";
+                    qDebug() << "[main] 将 '已完工' 记录迁移为 '已派工'...";
                     QSqlQuery upd(DbManager::instance().database());
-                    upd.exec("UPDATE t_workorder SET status='维修中' WHERE status='已完工'");
+                    upd.exec("UPDATE t_workorder SET status='已派工' WHERE status='已完工'");
+                }
+                if (hasRepairing) {
+                    qDebug() << "[main] 将 '维修中' 记录迁移为 '已派工'...";
+                    QSqlQuery upd(DbManager::instance().database());
+                    upd.exec("UPDATE t_workorder SET status='已派工' WHERE status='维修中'");
                 }
                 qDebug() << "[main] 更新 status ENUM 定义...";
                 QSqlQuery alt(DbManager::instance().database());
                 if (alt.exec("ALTER TABLE t_workorder MODIFY COLUMN status "
-                             "ENUM('已派工','待提单','维修中','已提单','已结算') "
+                             "ENUM('已派工','待提单','已提单','已结算') "
                              "DEFAULT '已派工' COMMENT '工单状态'")) {
                     qDebug() << "[main] status ENUM 更新成功";
                 } else {
@@ -86,6 +93,58 @@ int main(int argc, char *argv[])
             }
         } else {
             qDebug() << "[main] t_customer.address 列已存在, 无需迁移";
+        }
+
+        // 迁移: 确保 t_workorder_repair_item 表存在（工时费明细）
+        mq.exec("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_SCHEMA='garagedb' AND TABLE_NAME='t_workorder_repair_item'");
+        if (!mq.next()) {
+            qDebug() << "[main] 创建 t_workorder_repair_item 表...";
+            QSqlQuery cr(DbManager::instance().database());
+            if (cr.exec("CREATE TABLE t_workorder_repair_item ("
+                        "id INT PRIMARY KEY AUTO_INCREMENT COMMENT '明细ID',"
+                        "workorder_id INT NOT NULL COMMENT '关联工单ID',"
+                        "item_type VARCHAR(10) NOT NULL COMMENT '项目类型(机电/钣金/喷漆)',"
+                        "repair_person VARCHAR(50) COMMENT '维修人姓名',"
+                        "repair_content VARCHAR(200) COMMENT '维修内容',"
+                        "fee DECIMAL(10,2) DEFAULT 0.00 COMMENT '费用',"
+                        "created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',"
+                        "INDEX idx_workorder (workorder_id),"
+                        "FOREIGN KEY (workorder_id) REFERENCES t_workorder(id) ON DELETE CASCADE"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci")) {
+                qDebug() << "[main] t_workorder_repair_item 表创建成功";
+            } else {
+                qWarning() << "[main] 创建 t_workorder_repair_item 失败:" << cr.lastError().text();
+            }
+        } else {
+            qDebug() << "[main] t_workorder_repair_item 表已存在, 无需迁移";
+        }
+
+        // 迁移: 确保 t_technician_work_record 表存在（技工工作记录）
+        mq.exec("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_SCHEMA='garagedb' AND TABLE_NAME='t_technician_work_record'");
+        if (!mq.next()) {
+            qDebug() << "[main] 创建 t_technician_work_record 表...";
+            QSqlQuery cr(DbManager::instance().database());
+            if (cr.exec("CREATE TABLE t_technician_work_record ("
+                        "id INT PRIMARY KEY AUTO_INCREMENT COMMENT '记录ID',"
+                        "workorder_id INT NOT NULL COMMENT '关联工单ID',"
+                        "technician_id INT NOT NULL COMMENT '技工ID(关联t_employee)',"
+                        "item_type VARCHAR(10) COMMENT '类型(机电/钣金/喷漆)',"
+                        "work_content VARCHAR(200) COMMENT '工作内容',"
+                        "fee DECIMAL(10,2) DEFAULT 0.00 COMMENT '费用',"
+                        "created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',"
+                        "INDEX idx_wr_workorder (workorder_id),"
+                        "INDEX idx_wr_tech (technician_id),"
+                        "FOREIGN KEY (workorder_id) REFERENCES t_workorder(id) ON DELETE CASCADE,"
+                        "FOREIGN KEY (technician_id) REFERENCES t_employee(id) ON DELETE CASCADE"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci")) {
+                qDebug() << "[main] t_technician_work_record 表创建成功";
+            } else {
+                qWarning() << "[main] 创建 t_technician_work_record 失败:" << cr.lastError().text();
+            }
+        } else {
+            qDebug() << "[main] t_technician_work_record 表已存在, 无需迁移";
         }
 
         // 迁移: 确保 t_vehicle 表有 color / fuel_type / transmission 列
@@ -135,6 +194,30 @@ int main(int argc, char *argv[])
             } else {
                 qDebug() << "[main] t_workorder." << tc.name << " 列已存在, 无需迁移";
             }
+        }
+
+        // 迁移: t_workorder 增加 is_visited 回访状态列
+        //   两个值: '未回访' / '已回访'；工单创建时默认为 '未回访'（由列默认值保证）
+        mq.exec("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA='garagedb' AND TABLE_NAME='t_workorder' AND COLUMN_NAME='is_visited'");
+        if (!mq.next()) {
+            qDebug() << "[main] t_workorder 缺少 is_visited 列, 正在添加...";
+            QSqlQuery alt(DbManager::instance().database());
+            if (alt.exec("ALTER TABLE t_workorder ADD COLUMN is_visited "
+                         "ENUM('未回访','已回访') NOT NULL DEFAULT '未回访' COMMENT '回访状态'")) {
+                qDebug() << "[main] t_workorder.is_visited 添加成功";
+                // 历史已有满意度(即已回访)的记录标记为已回访，避免重复出现在待回访列表
+                QSqlQuery back(DbManager::instance().database());
+                if (back.exec("UPDATE t_workorder SET is_visited='已回访' WHERE satisfaction IS NOT NULL")) {
+                    qDebug() << "[main] 历史已回访记录已标记为已回访";
+                } else {
+                    qWarning() << "[main] 历史回访标记失败:" << back.lastError().text();
+                }
+            } else {
+                qWarning() << "[main] 添加 is_visited 列失败:" << alt.lastError().text();
+            }
+        } else {
+            qDebug() << "[main] t_workorder.is_visited 列已存在, 无需迁移";
         }
 
         // 迁移: t_maintenance_history 扩展字段（v2: 入出厂时间、里程、服务顾问等）

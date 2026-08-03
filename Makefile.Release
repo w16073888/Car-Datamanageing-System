@@ -220,6 +220,7 @@ all: Makefile.Release  release/corefunction.exe
 
 release/corefunction.exe: D:/Qt/6.11.1/mingw_64/lib/libQt6PrintSupport.a D:/Qt/6.11.1/mingw_64/lib/libQt6Charts.a D:/Qt/6.11.1/mingw_64/lib/libQt6OpenGLWidgets.a D:/Qt/6.11.1/mingw_64/lib/libQt6Widgets.a D:/Qt/6.11.1/mingw_64/lib/libQt6OpenGL.a D:/Qt/6.11.1/mingw_64/lib/libQt6Gui.a D:/Qt/6.11.1/mingw_64/lib/libQt6Sql.a D:/Qt/6.11.1/mingw_64/lib/libQt6Core.a D:/Qt/6.11.1/mingw_64/lib/libQt6EntryPoint.a $(OBJECTS) 
 	$(LINKER) $(LFLAGS) -o $(DESTDIR_TARGET) @release/object_script.corefunction.Release $(LIBS)
+	/D/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release $(DESTDIR_TARGET) --compiler-runtime --no-translations
 
 qmake: FORCE
 	@$(QMAKE) -o Makefile.Release corefunction.pro
@@ -521,8 +522,8 @@ release/moc_mainwindow.cpp: mainwindow.h \
 		src/pages/DataManagerPage.h \
 		src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQueryModel \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/PurchasePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QSpinBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qspinbox.h \
@@ -584,6 +585,8 @@ release/moc_mainwindow.cpp: mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtCharts/qvalueaxis.h \
 		src/pages/ServiceReminderPage.h \
 		src/pages/CustomerVisitPage.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
 		src/pages/ExportPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QCheckBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qcheckbox.h \
@@ -618,8 +621,6 @@ release/moc_mainwindow.cpp: mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTabWidget \
 		release/moc_predefs.h \
@@ -2122,6 +2123,8 @@ release/moc_WarehousePage.cpp: src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDoubleSpinBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QComboBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qcombobox.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		release/moc_predefs.h \
 		../../Qt/6.11.1/mingw_64/bin/moc.exe
 	'D:\Qt\6.11.1\mingw_64\bin\moc.exe' $(DEFINES) --include D:/temmpcode/test/release/moc_predefs.h -ID:/Qt/6.11.1/mingw_64/mkspecs/win32-g++ -ID:/temmpcode/test -ID:/temmpcode/test/src -ID:/temmpcode/test/src/database -ID:/temmpcode/test/src/dialogs -ID:/temmpcode/test/src/pages -ID:/temmpcode/test/src/widgets -ID:/Qt/6.11.1/mingw_64/include -ID:/Qt/6.11.1/mingw_64/include/QtPrintSupport -ID:/Qt/6.11.1/mingw_64/include/QtCharts -ID:/Qt/6.11.1/mingw_64/include/QtOpenGLWidgets -ID:/Qt/6.11.1/mingw_64/include/QtWidgets -ID:/Qt/6.11.1/mingw_64/include/QtOpenGL -ID:/Qt/6.11.1/mingw_64/include/QtGui -ID:/Qt/6.11.1/mingw_64/include/QtSql -ID:/Qt/6.11.1/mingw_64/include/QtCore -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++ -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/x86_64-w64-mingw32 -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/backward -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include-fixed -ID:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include src/pages/WarehousePage.h -o release/moc_WarehousePage.cpp
@@ -2365,8 +2368,8 @@ release/moc_QuotePage.cpp: src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QLabel \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlabel.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpicture.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		release/moc_predefs.h \
 		../../Qt/6.11.1/mingw_64/bin/moc.exe
 	'D:\Qt\6.11.1\mingw_64\bin\moc.exe' $(DEFINES) --include D:/temmpcode/test/release/moc_predefs.h -ID:/Qt/6.11.1/mingw_64/mkspecs/win32-g++ -ID:/temmpcode/test -ID:/temmpcode/test/src -ID:/temmpcode/test/src/database -ID:/temmpcode/test/src/dialogs -ID:/temmpcode/test/src/pages -ID:/temmpcode/test/src/widgets -ID:/Qt/6.11.1/mingw_64/include -ID:/Qt/6.11.1/mingw_64/include/QtPrintSupport -ID:/Qt/6.11.1/mingw_64/include/QtCharts -ID:/Qt/6.11.1/mingw_64/include/QtOpenGLWidgets -ID:/Qt/6.11.1/mingw_64/include/QtWidgets -ID:/Qt/6.11.1/mingw_64/include/QtOpenGL -ID:/Qt/6.11.1/mingw_64/include/QtGui -ID:/Qt/6.11.1/mingw_64/include/QtSql -ID:/Qt/6.11.1/mingw_64/include/QtCore -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++ -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/x86_64-w64-mingw32 -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/backward -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include -ID:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include-fixed -ID:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include src/pages/QuotePage.h -o release/moc_QuotePage.cpp
@@ -2583,7 +2586,8 @@ release/moc_SettlementPage.cpp: src/pages/SettlementPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QPushButton \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qpushbutton.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractbutton.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableView \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtableview.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractitemview.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractscrollarea.h \
@@ -2600,13 +2604,6 @@ release/moc_SettlementPage.cpp: src/pages/SettlementPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtabbar.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtabwidget.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qrubberband.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQueryModel \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlquerymodel.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qtsqlglobal.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qtsql-config.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qtsqlexports.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qsqldatabase.h \
-		../../Qt/6.11.1/mingw_64/include/QtCore/qmetaobject.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QLabel \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlabel.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpicture.h \
@@ -6814,8 +6811,8 @@ release/main.o: main.cpp mainwindow.h \
 		src/pages/DataManagerPage.h \
 		src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQueryModel \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/PurchasePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QSpinBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qspinbox.h \
@@ -6877,6 +6874,8 @@ release/main.o: main.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtCharts/qvalueaxis.h \
 		src/pages/ServiceReminderPage.h \
 		src/pages/CustomerVisitPage.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
 		src/pages/ExportPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QCheckBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qcheckbox.h \
@@ -6911,8 +6910,6 @@ release/main.o: main.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTabWidget \
 		src/dialogs/LoginDialog.h \
@@ -7197,8 +7194,8 @@ release/mainwindow.o: mainwindow.cpp mainwindow.h \
 		src/pages/DataManagerPage.h \
 		src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQueryModel \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/PurchasePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QSpinBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qspinbox.h \
@@ -7260,6 +7257,8 @@ release/mainwindow.o: mainwindow.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtCharts/qvalueaxis.h \
 		src/pages/ServiceReminderPage.h \
 		src/pages/CustomerVisitPage.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
 		src/pages/ExportPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QCheckBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qcheckbox.h \
@@ -7294,8 +7293,6 @@ release/mainwindow.o: mainwindow.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/QPageSize \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTabWidget \
 		src/database/Session.h \
@@ -7310,8 +7307,10 @@ release/mainwindow.o: mainwindow.cpp mainwindow.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QMutex \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QApplication \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qapplication.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QCoreApplication \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QStatusBar \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qstatusbar.h \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QIcon \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QMessageBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qmessagebox.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
@@ -8361,6 +8360,8 @@ release/DataManagerPage.o: src/pages/DataManagerPage.cpp src/pages/DataManagerPa
 		../../Qt/6.11.1/mingw_64/include/QtCore/QDebug \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QString \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QMutex \
+		src/database/Session.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QSet \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qboxlayout.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayout.h \
@@ -8688,7 +8689,24 @@ release/FrontDeskPage.o: src/pages/FrontDeskPage.cpp src/pages/FrontDeskPage.h \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/QPrintPreviewDialog \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/qprintpreviewdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/QTextDocument \
-		../../Qt/6.11.1/mingw_64/include/QtCore/QDateTime
+		../../Qt/6.11.1/mingw_64/include/QtCore/QDateTime \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QJsonDocument \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsondocument.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonparseerror.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonvalue.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qcborvalue.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qcborcommon.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/quuid.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QJsonArray \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonarray.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QJsonObject \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonobject.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QCheckBox \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qcheckbox.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QRadioButton \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qradiobutton.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QButtonGroup \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qbuttongroup.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/FrontDeskPage.o src/pages/FrontDeskPage.cpp
 
 release/WarehousePage.o: src/pages/WarehousePage.cpp src/pages/WarehousePage.h \
@@ -8936,6 +8954,8 @@ release/WarehousePage.o: src/pages/WarehousePage.cpp src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDoubleSpinBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QComboBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qcombobox.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/database/DbManager.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlDatabase \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQuery \
@@ -8969,7 +8989,8 @@ release/WarehousePage.o: src/pages/WarehousePage.cpp src/pages/WarehousePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qdatetime.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlRecord \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h
+		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlrecord.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDialog
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/WarehousePage.o src/pages/WarehousePage.cpp
 
 release/QuotePage.o: src/pages/QuotePage.cpp src/pages/QuotePage.h \
@@ -9211,8 +9232,8 @@ release/QuotePage.o: src/pages/QuotePage.cpp src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QLabel \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlabel.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpicture.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTextEdit \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtextedit.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		src/database/DbManager.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlDatabase \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQuery \
@@ -9222,18 +9243,16 @@ release/QuotePage.o: src/pages/QuotePage.cpp src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QDebug \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QString \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QMutex \
+		src/database/Session.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QSet \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QVBoxLayout \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qboxlayout.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayout.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlayoutitem.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qgridlayout.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QHBoxLayout \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QGridLayout \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QGroupBox \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qgroupbox.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFormLayout \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/qformlayout.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QLayout \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QHeaderView \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qheaderview.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QMessageBox \
@@ -9243,6 +9262,9 @@ release/QuotePage.o: src/pages/QuotePage.cpp src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/QDateTime \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qdatetime.h \
 		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QDialog \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QScrollArea \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qscrollarea.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/QTextDocument \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/QPrintPreviewDialog \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/qprintpreviewdialog.h \
@@ -9254,7 +9276,19 @@ release/QuotePage.o: src/pages/QuotePage.cpp src/pages/QuotePage.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagedpaintdevice.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagelayout.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
-		../../Qt/6.11.1/mingw_64/include/QtGui/qpageranges.h
+		../../Qt/6.11.1/mingw_64/include/QtGui/qpageranges.h \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QFileDialog \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qfiledialog.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdir.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdirlisting.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfiledevice.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfile.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qfileinfo.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qtimezone.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QTextStream \
+		../../Qt/6.11.1/mingw_64/include/QtGui/QDesktopServices \
+		../../Qt/6.11.1/mingw_64/include/QtGui/qdesktopservices.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QUrl
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/QuotePage.o src/pages/QuotePage.cpp
 
 release/SettlementPage.o: src/pages/SettlementPage.cpp src/pages/SettlementPage.h \
@@ -9469,7 +9503,8 @@ release/SettlementPage.o: src/pages/SettlementPage.cpp src/pages/SettlementPage.
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QPushButton \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qpushbutton.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractbutton.h \
-		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableView \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/QTableWidget \
+		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtablewidget.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtableview.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractitemview.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qabstractscrollarea.h \
@@ -9486,18 +9521,16 @@ release/SettlementPage.o: src/pages/SettlementPage.cpp src/pages/SettlementPage.
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtabbar.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qtabwidget.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qrubberband.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQueryModel \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlquerymodel.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qtsqlglobal.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qtsql-config.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qtsqlexports.h \
-		../../Qt/6.11.1/mingw_64/include/QtSql/qsqldatabase.h \
-		../../Qt/6.11.1/mingw_64/include/QtCore/qmetaobject.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/QLabel \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qlabel.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpicture.h \
 		src/database/DbManager.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlDatabase \
+		../../Qt/6.11.1/mingw_64/include/QtSql/qsqldatabase.h \
+		../../Qt/6.11.1/mingw_64/include/QtSql/qtsqlglobal.h \
+		../../Qt/6.11.1/mingw_64/include/QtSql/qtsql-config.h \
+		../../Qt/6.11.1/mingw_64/include/QtSql/qtsqlexports.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qmetaobject.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlQuery \
 		../../Qt/6.11.1/mingw_64/include/QtSql/qsqlquery.h \
 		../../Qt/6.11.1/mingw_64/include/QtSql/QSqlError \
@@ -9522,6 +9555,19 @@ release/SettlementPage.o: src/pages/SettlementPage.cpp src/pages/SettlementPage.
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qmessagebox.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialog.h \
 		../../Qt/6.11.1/mingw_64/include/QtWidgets/qdialogbuttonbox.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QJsonDocument \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsondocument.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonparseerror.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonvalue.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qcborvalue.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qcborcommon.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qdatetime.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/quuid.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QJsonArray \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonarray.h \
+		../../Qt/6.11.1/mingw_64/include/QtCore/QJsonObject \
+		../../Qt/6.11.1/mingw_64/include/QtCore/qjsonobject.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/QTextDocument \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/QPrintPreviewDialog \
 		../../Qt/6.11.1/mingw_64/include/QtPrintSupport/qprintpreviewdialog.h \
@@ -9534,9 +9580,7 @@ release/SettlementPage.o: src/pages/SettlementPage.cpp src/pages/SettlementPage.
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagelayout.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpagesize.h \
 		../../Qt/6.11.1/mingw_64/include/QtGui/qpageranges.h \
-		../../Qt/6.11.1/mingw_64/include/QtCore/QDateTime \
-		../../Qt/6.11.1/mingw_64/include/QtCore/qdatetime.h \
-		../../Qt/6.11.1/mingw_64/include/QtCore/qcalendar.h
+		../../Qt/6.11.1/mingw_64/include/QtCore/QDateTime
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o release/SettlementPage.o src/pages/SettlementPage.cpp
 
 release/SettlementQueryPage.o: src/pages/SettlementQueryPage.cpp src/pages/SettlementQueryPage.h \

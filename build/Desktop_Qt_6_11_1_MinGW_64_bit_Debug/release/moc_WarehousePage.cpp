@@ -48,13 +48,16 @@ template <> constexpr inline auto WarehousePage::qt_create_metaobjectdata<qt_met
         "onBillingSearchOrder",
         "onBillingOrderSearchTextChanged",
         "onCompareAndBill",
+        "onCancelBill",
         "onPurchaseSearch",
         "onPurchaseConfirm",
         "onStockSearch",
         "onReturnSearch",
         "onReturnConfirm",
         "onPurchaseReturnSearch",
-        "onPurchaseReturnConfirm"
+        "onPurchaseReturnConfirm",
+        "onTabChanged",
+        "index"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -74,20 +77,26 @@ template <> constexpr inline auto WarehousePage::qt_create_metaobjectdata<qt_met
         }}),
         // Slot 'onCompareAndBill'
         QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPurchaseSearch'
+        // Slot 'onCancelBill'
         QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPurchaseConfirm'
+        // Slot 'onPurchaseSearch'
         QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onStockSearch'
+        // Slot 'onPurchaseConfirm'
         QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onReturnSearch'
+        // Slot 'onStockSearch'
         QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onReturnConfirm'
+        // Slot 'onReturnSearch'
         QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPurchaseReturnSearch'
+        // Slot 'onReturnConfirm'
         QtMocHelpers::SlotData<void()>(14, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onPurchaseReturnConfirm'
+        // Slot 'onPurchaseReturnSearch'
         QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onPurchaseReturnConfirm'
+        QtMocHelpers::SlotData<void()>(16, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onTabChanged'
+        QtMocHelpers::SlotData<void(int)>(17, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::Int, 18 },
+        }}),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -117,13 +126,15 @@ void WarehousePage::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _i
         case 3: _t->onBillingSearchOrder(); break;
         case 4: _t->onBillingOrderSearchTextChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
         case 5: _t->onCompareAndBill(); break;
-        case 6: _t->onPurchaseSearch(); break;
-        case 7: _t->onPurchaseConfirm(); break;
-        case 8: _t->onStockSearch(); break;
-        case 9: _t->onReturnSearch(); break;
-        case 10: _t->onReturnConfirm(); break;
-        case 11: _t->onPurchaseReturnSearch(); break;
-        case 12: _t->onPurchaseReturnConfirm(); break;
+        case 6: _t->onCancelBill(); break;
+        case 7: _t->onPurchaseSearch(); break;
+        case 8: _t->onPurchaseConfirm(); break;
+        case 9: _t->onStockSearch(); break;
+        case 10: _t->onReturnSearch(); break;
+        case 11: _t->onReturnConfirm(); break;
+        case 12: _t->onPurchaseReturnSearch(); break;
+        case 13: _t->onPurchaseReturnConfirm(); break;
+        case 14: _t->onTabChanged((*reinterpret_cast<std::add_pointer_t<int>>(_a[1]))); break;
         default: ;
         }
     }
@@ -148,14 +159,14 @@ int WarehousePage::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 13)
+        if (_id < 15)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 13;
+        _id -= 15;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 13)
+        if (_id < 15)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 13;
+        _id -= 15;
     }
     return _id;
 }

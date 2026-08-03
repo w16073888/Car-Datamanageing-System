@@ -1,11 +1,13 @@
 #include "DataManagerPage.h"
 #include "database/DbManager.h"
+#include "database/Session.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QSqlError>
+#include <QSqlQuery>
 #include <QSqlRecord>
 #include <QClipboard>
 #include <QApplication>
@@ -26,7 +28,7 @@ void DataManagerPage::setupUI()
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(20, 10, 20, 10);
 
-    QLabel *title = new QLabel("数据管理（经理权限）");
+    QLabel *title = new QLabel("数据管理");
     title->setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; padding: 5px;");
     mainLayout->addWidget(title);
 
@@ -43,9 +45,9 @@ void DataManagerPage::setupUI()
     m_tableSelector->addItem("备件表", "t_parts");
     m_tableSelector->addItem("库存流水表", "t_inventory_log");
     m_tableSelector->addItem("结算表", "t_settlement");
-    m_tableSelector->addItem("回访表", "t_return_visit");
     m_tableSelector->addItem("系统日志表", "t_system_log");
     m_tableSelector->addItem("交易历史表", "t_vehicle_transaction");
+    m_tableSelector->addItem("回访记录表", "回访记录");
     m_tableSelector->setMinimumWidth(240);
     tableSelectLayout->addWidget(m_tableSelector);
 
@@ -66,6 +68,23 @@ void DataManagerPage::setupUI()
 
     tableSelectLayout->addStretch();
     mainLayout->addLayout(tableSelectLayout);
+
+    // 回访记录筛选行（仅选择"回访记录表"时显示）
+    m_visitFilterRow = new QWidget;
+    QHBoxLayout *visitFilterLayout = new QHBoxLayout(m_visitFilterRow);
+    visitFilterLayout->setContentsMargins(0, 0, 0, 0);
+    visitFilterLayout->setSpacing(8);
+    visitFilterLayout->addWidget(new QLabel("回访时间："));
+    m_visitDateRange = new DateRangeWidget;
+    visitFilterLayout->addWidget(m_visitDateRange);
+    visitFilterLayout->addSpacing(10);
+    visitFilterLayout->addWidget(new QLabel("满意度："));
+    m_cmbVisitSatisfaction = new QComboBox;
+    m_cmbVisitSatisfaction->addItems({"全部", "满意", "一般", "不满意"});
+    visitFilterLayout->addWidget(m_cmbVisitSatisfaction);
+    visitFilterLayout->addStretch();
+    m_visitFilterRow->setVisible(false);
+    mainLayout->addWidget(m_visitFilterRow);
 
     // 提示
     m_hintLabel = new QLabel("单击选单元格, Shift/Ctrl 多选, Ctrl+C 复制。双击单元格可编辑，编辑后自动保存");
@@ -88,6 +107,7 @@ void DataManagerPage::setupUI()
     m_model = new QSqlTableModel(this, DbManager::instance().database());
     m_model->setEditStrategy(QSqlTableModel::OnFieldChange);
     m_tableView->setModel(m_model);
+    m_queryModel = new QSqlQueryModel(this);
 
     // Ctrl+C 复制选中单元格
     m_tableView->installEventFilter(this);
@@ -98,6 +118,12 @@ void DataManagerPage::setupUI()
     connect(m_btnRefresh, &QPushButton::clicked, this, &DataManagerPage::onRefresh);
     connect(m_btnDelete, &QPushButton::clicked, this, &DataManagerPage::onDelete);
 
+    // 回访记录筛选变化 → 重新查询
+    connect(m_visitDateRange, &DateRangeWidget::dateRangeChanged,
+            this, [this](const QDate &, const QDate &) { loadVisitRecords(); });
+    connect(m_cmbVisitSatisfaction, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) { loadVisitRecords(); });
+
     // 初始加载第一个表
     onTableSelected(0);
 }
@@ -106,12 +132,66 @@ void DataManagerPage::onTableSelected(int index)
 {
     Q_UNUSED(index)
     QString pureTable = m_tableSelector->currentData().toString();
+
+    // 回访记录表：只读查询视图 + 时间/满意度筛选 + 特殊删除（清除回访信息）
+    if (pureTable == "回访记录") {
+        m_visitFilterRow->setVisible(true);
+        m_tableView->setModel(m_queryModel);
+        loadVisitRecords();
+        m_btnDelete->setVisible(Session::instance().canDeleteDataTable(pureTable));
+        return;
+    }
+
+    // 普通数据表：QSqlTableModel 直接编辑
+    m_visitFilterRow->setVisible(false);
+    if (m_tableView->model() != m_model)
+        m_tableView->setModel(m_model);
     m_model->setTable(pureTable);
+    // 清除可能残留的过滤条件，确保显示全部记录
+    m_model->setFilter("");
     m_model->select();
     setChineseHeaders();
     m_tableView->resizeColumnsToContents();
-    m_hintLabel->setText(QString("双击单元格编辑，当前表：%1，共 %2 行")
-                         .arg(m_tableSelector->currentText()).arg(m_model->rowCount()));
+
+    // 按职位控制“删除选中行”按钮开放度
+    bool canDel = Session::instance().canDeleteDataTable(pureTable);
+    m_btnDelete->setVisible(canDel);
+    m_hintLabel->setText(QString("双击单元格编辑，当前表：%1，共 %2 行 | %3")
+                         .arg(m_tableSelector->currentText())
+                         .arg(m_model->rowCount())
+                         .arg(canDel ? "删除权限：本表允许删除"
+                                     : "删除权限：当前职位无删除权限"));
+}
+
+void DataManagerPage::loadVisitRecords()
+{
+    QString sat = m_cmbVisitSatisfaction->currentText();
+
+    QSqlQuery query(DbManager::instance().database());
+    query.prepare(
+        "SELECT w.id AS '工单ID', w.order_no AS '工单号', v.plate_number AS '车牌号', "
+        "  w.satisfaction AS '满意度', w.remark AS '回访备注', "
+        "  COALESCE(e.name,'') AS '回访人', w.visited_at AS '回访时间' "
+        "FROM t_workorder w "
+        "LEFT JOIN t_vehicle v ON v.id = w.vehicle_id "
+        "LEFT JOIN t_employee e ON e.id = w.visitor_id "
+        "WHERE w.is_visited = '已回访' "
+        "  AND DATE(w.visited_at) BETWEEN :start AND :end "
+        + (sat == "全部" ? QString() : QString(" AND w.satisfaction = :sat"))
+        + " ORDER BY w.visited_at DESC");
+    query.bindValue(":start", m_visitDateRange->startDate().toString("yyyy-MM-dd"));
+    query.bindValue(":end", m_visitDateRange->endDate().toString("yyyy-MM-dd"));
+    if (sat != "全部")
+        query.bindValue(":sat", sat);
+    DbManager::instance().executeQuery(query);
+    m_queryModel->setQuery(std::move(query));
+
+    m_tableView->resizeColumnsToContents();
+    m_hintLabel->setText(QString("回访记录：%1 至 %2 | 满意度：%3 | 共 %4 条 | 删除=清除该工单回访信息")
+                         .arg(m_visitDateRange->startDate().toString("yyyy-MM-dd"),
+                              m_visitDateRange->endDate().toString("yyyy-MM-dd"),
+                              sat)
+                         .arg(m_queryModel->rowCount()));
 }
 
 void DataManagerPage::setChineseHeaders()
@@ -164,32 +244,50 @@ void DataManagerPage::setChineseHeaders()
         m_model->setHeaderData(6, Qt::Horizontal, "创建时间");
         m_model->setHeaderData(7, Qt::Horizontal, "更新时间");
     }
-    // t_workorder
+    // t_workorder (28 columns)
     else if (table == "t_workorder") {
-        m_model->setHeaderData(0, Qt::Horizontal, "ID");
-        m_model->setHeaderData(1, Qt::Horizontal, "工单号");
-        m_model->setHeaderData(2, Qt::Horizontal, "车辆ID");
-        m_model->setHeaderData(3, Qt::Horizontal, "维修责任人ID");
-        m_model->setHeaderData(4, Qt::Horizontal, "公里数");
-        m_model->setHeaderData(5, Qt::Horizontal, "报修内容");
-        m_model->setHeaderData(6, Qt::Horizontal, "预估工时费");
-        m_model->setHeaderData(7, Qt::Horizontal, "总金额");
-        m_model->setHeaderData(8, Qt::Horizontal, "状态");
-        m_model->setHeaderData(9, Qt::Horizontal, "创建人ID");
-        m_model->setHeaderData(10, Qt::Horizontal, "创建时间");
-        m_model->setHeaderData(11, Qt::Horizontal, "更新时间");
+        m_model->setHeaderData(0,  Qt::Horizontal, "ID");
+        m_model->setHeaderData(1,  Qt::Horizontal, "工单号");
+        m_model->setHeaderData(2,  Qt::Horizontal, "车辆ID");
+        m_model->setHeaderData(3,  Qt::Horizontal, "主修人ID");
+        m_model->setHeaderData(4,  Qt::Horizontal, "机电主修");
+        m_model->setHeaderData(5,  Qt::Horizontal, "钣金主修");
+        m_model->setHeaderData(6,  Qt::Horizontal, "喷漆主修");
+        m_model->setHeaderData(7,  Qt::Horizontal, "服务顾问");
+        m_model->setHeaderData(8,  Qt::Horizontal, "公里数");
+        m_model->setHeaderData(9,  Qt::Horizontal, "报修内容");
+        m_model->setHeaderData(10, Qt::Horizontal, "工时费");
+        m_model->setHeaderData(11, Qt::Horizontal, "材料费");
+        m_model->setHeaderData(12, Qt::Horizontal, "其它费");
+        m_model->setHeaderData(13, Qt::Horizontal, "管理费");
+        m_model->setHeaderData(14, Qt::Horizontal, "总金额");
+        m_model->setHeaderData(15, Qt::Horizontal, "订金");
+        m_model->setHeaderData(16, Qt::Horizontal, "班别");
+        m_model->setHeaderData(17, Qt::Horizontal, "主修人姓名");
+        m_model->setHeaderData(18, Qt::Horizontal, "报修日期");
+        m_model->setHeaderData(19, Qt::Horizontal, "预估完工");
+        m_model->setHeaderData(20, Qt::Horizontal, "状态");
+        m_model->setHeaderData(21, Qt::Horizontal, "满意度");
+        m_model->setHeaderData(22, Qt::Horizontal, "回访备注");
+        m_model->setHeaderData(23, Qt::Horizontal, "回访人ID");
+        m_model->setHeaderData(24, Qt::Horizontal, "回访时间");
+        m_model->setHeaderData(25, Qt::Horizontal, "创建人ID");
+        m_model->setHeaderData(26, Qt::Horizontal, "创建时间");
+        m_model->setHeaderData(27, Qt::Horizontal, "更新时间");
+        m_model->setHeaderData(28, Qt::Horizontal, "回访状态");
     }
-    // t_workorder_item
+    // t_workorder_item (10 columns)
     else if (table == "t_workorder_item") {
         m_model->setHeaderData(0, Qt::Horizontal, "ID");
         m_model->setHeaderData(1, Qt::Horizontal, "工单ID");
         m_model->setHeaderData(2, Qt::Horizontal, "备件ID");
-        m_model->setHeaderData(3, Qt::Horizontal, "备件名称");
-        m_model->setHeaderData(4, Qt::Horizontal, "数量");
-        m_model->setHeaderData(5, Qt::Horizontal, "单价");
-        m_model->setHeaderData(6, Qt::Horizontal, "小计");
-        m_model->setHeaderData(7, Qt::Horizontal, "项目类型");
-        m_model->setHeaderData(8, Qt::Horizontal, "创建时间");
+        m_model->setHeaderData(3, Qt::Horizontal, "实例ID");
+        m_model->setHeaderData(4, Qt::Horizontal, "备件名称");
+        m_model->setHeaderData(5, Qt::Horizontal, "数量");
+        m_model->setHeaderData(6, Qt::Horizontal, "单价");
+        m_model->setHeaderData(7, Qt::Horizontal, "小计");
+        m_model->setHeaderData(8, Qt::Horizontal, "项目类型");
+        m_model->setHeaderData(9, Qt::Horizontal, "创建时间");
     }
     // t_quote_item
     else if (table == "t_quote_item") {
@@ -216,18 +314,20 @@ void DataManagerPage::setChineseHeaders()
         m_model->setHeaderData(10, Qt::Horizontal, "创建时间");
         m_model->setHeaderData(11, Qt::Horizontal, "更新时间");
     }
-    // t_inventory_log
+    // t_inventory_log (12 columns)
     else if (table == "t_inventory_log") {
-        m_model->setHeaderData(0, Qt::Horizontal, "ID");
-        m_model->setHeaderData(1, Qt::Horizontal, "备件ID");
-        m_model->setHeaderData(2, Qt::Horizontal, "数量");
-        m_model->setHeaderData(3, Qt::Horizontal, "单价");
-        m_model->setHeaderData(4, Qt::Horizontal, "总价");
-        m_model->setHeaderData(5, Qt::Horizontal, "操作类型");
-        m_model->setHeaderData(6, Qt::Horizontal, "关联单号");
-        m_model->setHeaderData(7, Qt::Horizontal, "操作人ID");
-        m_model->setHeaderData(8, Qt::Horizontal, "备注");
-        m_model->setHeaderData(9, Qt::Horizontal, "操作时间");
+        m_model->setHeaderData(0,  Qt::Horizontal, "ID");
+        m_model->setHeaderData(1,  Qt::Horizontal, "备件ID");
+        m_model->setHeaderData(2,  Qt::Horizontal, "实例ID");
+        m_model->setHeaderData(3,  Qt::Horizontal, "数量");
+        m_model->setHeaderData(4,  Qt::Horizontal, "单价");
+        m_model->setHeaderData(5,  Qt::Horizontal, "总价");
+        m_model->setHeaderData(6,  Qt::Horizontal, "操作类型");
+        m_model->setHeaderData(7,  Qt::Horizontal, "关联单号");
+        m_model->setHeaderData(8,  Qt::Horizontal, "操作人ID");
+        m_model->setHeaderData(9,  Qt::Horizontal, "领取人");
+        m_model->setHeaderData(10, Qt::Horizontal, "备注");
+        m_model->setHeaderData(11, Qt::Horizontal, "操作时间");
     }
     // t_settlement
     else if (table == "t_settlement") {
@@ -238,15 +338,6 @@ void DataManagerPage::setChineseHeaders()
         m_model->setHeaderData(4, Qt::Horizontal, "总金额");
         m_model->setHeaderData(5, Qt::Horizontal, "结算人ID");
         m_model->setHeaderData(6, Qt::Horizontal, "结算时间");
-    }
-    // t_return_visit
-    else if (table == "t_return_visit") {
-        m_model->setHeaderData(0, Qt::Horizontal, "ID");
-        m_model->setHeaderData(1, Qt::Horizontal, "工单ID");
-        m_model->setHeaderData(2, Qt::Horizontal, "满意度");
-        m_model->setHeaderData(3, Qt::Horizontal, "备注");
-        m_model->setHeaderData(4, Qt::Horizontal, "回访人ID");
-        m_model->setHeaderData(5, Qt::Horizontal, "回访时间");
     }
     // t_system_log
     else if (table == "t_system_log") {
@@ -287,10 +378,158 @@ void DataManagerPage::onDelete()
     }
 
     int row = index.row();
-    // 获取该行第一列数据作为标识
-    QVariant id = m_model->data(m_model->index(row, 0));
-
+    // 获取该行第一列数据作为标识（使用当前活动模型：回访记录表用的是查询模型）
+    QAbstractItemModel *activeModel = m_tableView->model();
+    QVariant id = activeModel->data(activeModel->index(row, 0));
+    QString table = m_tableSelector->currentData().toString();
     QString tableDisplay = m_tableSelector->currentText();
+
+    // 运行时权限校验（与按钮显隐一致，防止绕过）
+    if (!Session::instance().canDeleteDataTable(table)) {
+        QMessageBox::warning(this, "无权限",
+            QString("当前职位无权删除「%1」中的记录").arg(tableDisplay));
+        return;
+    }
+
+    // ========== 回访记录表特殊处理：删除=清除该工单的回访信息 ==========
+    if (table == "回访记录") {
+        QMessageBox::StandardButton r = QMessageBox::question(
+            this, "确认删除",
+            QString("确定要删除该回访记录吗？\n"
+                    "将清除工单(ID=%1)的满意度、回访备注、回访人与回访时间，\n"
+                    "并将其回访状态恢复为「未回访」。").arg(id.toString()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (r != QMessageBox::Yes)
+            return;
+
+        QSqlQuery up(DbManager::instance().database());
+        up.prepare("UPDATE t_workorder SET satisfaction=NULL, remark=NULL, visitor_id=NULL, "
+                   "visited_at=NULL, is_visited='未回访' WHERE id=:oid");
+        up.bindValue(":oid", id.toInt());
+        if (!DbManager::instance().executeQuery(up)) {
+            QMessageBox::warning(this, "删除失败", DbManager::instance().lastError());
+            return;
+        }
+        loadVisitRecords();
+        return;
+    }
+
+    // ========== 工单表特殊校验（总经理可跳过） ==========
+    if (table == "t_workorder") {
+        int workorderId = id.toInt();
+        bool isManager = (Session::instance().position() == "经理");
+
+        if (!isManager) {
+            // 1. 查询工单状态
+            QSqlQuery q(DbManager::instance().database());
+            q.prepare("SELECT status FROM t_workorder WHERE id = :id");
+            q.bindValue(":id", workorderId);
+            DbManager::instance().executeQuery(q);
+            QString status;
+            if (q.next()) status = q.value(0).toString();
+
+            if (status != "已派工") {
+                QMessageBox::warning(this, "无法删除",
+                    QString("该工单当前状态为「%1」，仅「已派工」状态的工单允许删除。\n\n"
+                            "工单状态流转后不可删除，请确认。").arg(status));
+                return;
+            }
+
+            // 2. 检查是否与备件绑定（t_part_instance 或 t_workorder_item）
+            q.prepare("SELECT COUNT(*) FROM t_part_instance WHERE workorder_id = :wid");
+            q.bindValue(":wid", workorderId);
+            DbManager::instance().executeQuery(q);
+            int instanceCount = q.next() ? q.value(0).toInt() : 0;
+
+            q.prepare("SELECT COUNT(*) FROM t_workorder_item WHERE workorder_id = :wid");
+            q.bindValue(":wid", workorderId);
+            DbManager::instance().executeQuery(q);
+            int itemCount = q.next() ? q.value(0).toInt() : 0;
+
+            if (instanceCount > 0 || itemCount > 0) {
+                QMessageBox::warning(this, "无法删除",
+                    QString("该工单已绑定备件，无法删除。\n\n"
+                            "• 备件实例绑定: %1 条\n"
+                            "• 工单备件明细: %2 条\n\n"
+                            "请先退回已领出的备件后再删除工单。")
+                    .arg(instanceCount).arg(itemCount));
+                return;
+            }
+        }
+    }
+
+    // ========== 备件表特殊处理：删除备件前清理其相关日志与关联记录 ==========
+    //   清理范围：库存流水日志(t_inventory_log)、备件实例(t_part_instance)、
+    //   采购记录(t_part_purchase)，并将工单备件明细(t_workorder_item)的 part_id 解绑置空
+    if (table == "t_parts") {
+        int partId = id.toInt();
+
+        QMessageBox::StandardButton partReply = QMessageBox::question(
+            this, "确认删除",
+            QString("确定要删除备件（ID=%1）吗？\n"
+                    "将同时删除该备件相关的库存流水日志、备件实例与采购记录，\n"
+                    "并解绑工单中的备件引用。\n此操作不可撤销！")
+                .arg(id.toString()),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (partReply != QMessageBox::Yes)
+            return;
+
+        DbManager::instance().beginTransaction();
+        bool ok = true;
+
+        // 1. 删除该备件的库存流水日志
+        QSqlQuery delLog(DbManager::instance().database());
+        delLog.prepare("DELETE FROM t_inventory_log WHERE part_id = :pid");
+        delLog.bindValue(":pid", partId);
+        if (!DbManager::instance().executeQuery(delLog)) ok = false;
+
+        // 2. 删除该备件的备件实例
+        if (ok) {
+            QSqlQuery delInst(DbManager::instance().database());
+            delInst.prepare("DELETE FROM t_part_instance WHERE part_id = :pid");
+            delInst.bindValue(":pid", partId);
+            if (!DbManager::instance().executeQuery(delInst)) ok = false;
+        }
+
+        // 3. 删除该备件的采购记录
+        if (ok) {
+            QSqlQuery delPur(DbManager::instance().database());
+            delPur.prepare("DELETE FROM t_part_purchase WHERE part_id = :pid");
+            delPur.bindValue(":pid", partId);
+            if (!DbManager::instance().executeQuery(delPur)) ok = false;
+        }
+
+        // 4. 工单备件明细解绑（保留明细文本，置空 part_id 引用）
+        if (ok) {
+            QSqlQuery unlink(DbManager::instance().database());
+            unlink.prepare("UPDATE t_workorder_item SET part_id = NULL WHERE part_id = :pid");
+            unlink.bindValue(":pid", partId);
+            if (!DbManager::instance().executeQuery(unlink)) ok = false;
+        }
+
+        // 5. 删除备件本体
+        if (ok) {
+            QSqlQuery delPart(DbManager::instance().database());
+            delPart.prepare("DELETE FROM t_parts WHERE id = :pid");
+            delPart.bindValue(":pid", partId);
+            if (!DbManager::instance().executeQuery(delPart)) ok = false;
+        }
+
+        if (ok) {
+            DbManager::instance().commitTransaction();
+            m_model->select();
+            m_tableView->resizeColumnsToContents();
+            m_hintLabel->setText(QString("已删除备件及其相关日志，当前表：%1，共 %2 行")
+                                 .arg(tableDisplay).arg(m_model->rowCount()));
+        } else {
+            DbManager::instance().rollbackTransaction();
+            QMessageBox::warning(this, "删除失败",
+                "删除备件失败：" + DbManager::instance().lastError());
+        }
+        return;
+    }
+
     QMessageBox::StandardButton reply = QMessageBox::question(
         this, "确认删除",
         QString("确定要删除「%1」中 ID 为 %2 的记录吗？\n此操作不可撤销！")
@@ -301,8 +540,10 @@ void DataManagerPage::onDelete()
     if (reply == QMessageBox::Yes) {
         if (m_model->removeRow(row)) {
             m_model->submitAll();
-            m_hintLabel->setText(QString("已删除 ID 为 %1 的记录，当前表：%2，共 %3 行")
-                                 .arg(id.toString())
+            // 删除后重新查询，确保显示完整
+            m_model->select();
+            m_tableView->resizeColumnsToContents();
+            m_hintLabel->setText(QString("已删除记录，当前表：%1，共 %2 行")
                                  .arg(tableDisplay)
                                  .arg(m_model->rowCount()));
         } else {
@@ -314,6 +555,11 @@ void DataManagerPage::onDelete()
 
 void DataManagerPage::onRefresh()
 {
+    // 回访记录视图下刷新查询模型，否则刷新普通表模型
+    if (m_tableSelector->currentData().toString() == "回访记录") {
+        loadVisitRecords();
+        return;
+    }
     m_model->select();
     m_tableView->resizeColumnsToContents();
 }

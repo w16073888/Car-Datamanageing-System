@@ -128,7 +128,7 @@ void InventoryOutPage::onConfirmOut()
     QSqlQuery query(DbManager::instance().database());
 
     // 检查库存
-    query.prepare("SELECT stock, sale_price FROM t_parts WHERE id = :id");
+    query.prepare("SELECT stock, COALESCE(NULLIF(sale_price,0), purchase_price, 0) FROM t_parts WHERE id = :id");
     query.bindValue(":id", m_selectedPartId);
     DbManager::instance().executeQuery(query);
     if (!query.next()) {

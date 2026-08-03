@@ -8,9 +8,16 @@
 #include <QMessageBox>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QShowEvent>
 
 ServiceReminderPage::ServiceReminderPage(QWidget *parent) : QWidget(parent) { setupUI(); }
 ServiceReminderPage::~ServiceReminderPage() {}
+
+void ServiceReminderPage::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    onScan();
+}
 
 void ServiceReminderPage::setupUI()
 {
@@ -25,25 +32,19 @@ void ServiceReminderPage::setupUI()
     QHBoxLayout *filterLayout = new QHBoxLayout(filterGroup);
     filterLayout->addWidget(new QLabel("距上次保养超过："));
     m_spinDays = new QSpinBox;
-    m_spinDays->setRange(1, 3650);
+    m_spinDays->setRange(0, 3650);
     m_spinDays->setValue(180);
     m_spinDays->setSuffix(" 天");
     filterLayout->addWidget(m_spinDays);
     filterLayout->addWidget(new QLabel("或行驶超过："));
     m_spinMileage = new QSpinBox;
-    m_spinMileage->setRange(100, 100000);
+    m_spinMileage->setRange(0, 100000);
     m_spinMileage->setValue(5000);
     m_spinMileage->setSuffix(" 公里");
     filterLayout->addWidget(m_spinMileage);
-    m_btnScan = new QPushButton("开始扫描");
-    m_btnScan->setStyleSheet("padding: 6px 14px; background: #e67e22; color: white; border-radius: 4px; font-weight: bold;");
-    filterLayout->addWidget(m_btnScan);
-    m_btnExport = new QPushButton("导出提醒列表");
-    m_btnExport->setStyleSheet("padding: 6px 14px; background: #8e44ad; color: white; border-radius: 4px;");
-    filterLayout->addWidget(m_btnExport);
     mainLayout->addWidget(filterGroup);
 
-    m_resultCount = new QLabel("点击「开始扫描」查询需要保养提醒的车辆");
+    m_resultCount = new QLabel("共 0 辆车需要保养提醒");
     m_resultCount->setStyleSheet("color: #7f8c8d; font-size: 13px;");
     mainLayout->addWidget(m_resultCount);
 
@@ -60,7 +61,14 @@ void ServiceReminderPage::setupUI()
     m_model = new QSqlQueryModel(this);
     m_tableView->setModel(m_model);
 
-    connect(m_btnScan, &QPushButton::clicked, this, &ServiceReminderPage::onScan);
+    // 筛选条件变化 → 自动扫描
+    connect(m_spinDays, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &ServiceReminderPage::onScan);
+    connect(m_spinMileage, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &ServiceReminderPage::onScan);
+
+    // 初始扫描
+    onScan();
 }
 
 void ServiceReminderPage::onScan()
@@ -79,8 +87,7 @@ void ServiceReminderPage::onScan()
         "WHERE (v.last_maintenance_date IS NOT NULL "
         "  AND DATEDIFF(CURDATE(), v.last_maintenance_date) > :days) "
         "   OR (v.last_maintenance_mileage IS NOT NULL "
-        "  AND v.last_maintenance_mileage > 0 "
-        "  AND :mileage > 0) "
+        "  AND v.last_maintenance_mileage > 0) "
         "ORDER BY v.last_maintenance_date ASC"
     );
     query.bindValue(":days", days);
@@ -88,9 +95,4 @@ void ServiceReminderPage::onScan()
     DbManager::instance().executeQuery(query);
     m_model->setQuery(std::move(query));
     m_resultCount->setText(QString("共 %1 辆车需要保养提醒").arg(m_model->rowCount()));
-}
-
-void ServiceReminderPage::onExportReminder()
-{
-    QMessageBox::information(this, "提示", "导出功能需要集成QXlsx库，当前版本暂未实现。");
 }

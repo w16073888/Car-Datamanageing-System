@@ -9,6 +9,7 @@
 #include <QSqlQueryModel>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSpinBox>
 
 class CustomerVisitPage : public QWidget
 {
@@ -21,6 +22,7 @@ public:
 private slots:
     void onLoadSettledOrders();
     void onSelectOrder(const QModelIndex &index);
+    void onOrderDoubleClicked(const QModelIndex &index);
     void onSaveVisit();
 
 private:
@@ -30,6 +32,7 @@ private:
     QSqlQueryModel *m_model;
 
     QLabel *m_lblOrderInfo;
+    QSpinBox *m_spinVisitDays;    // 回访间隔天数（回访日期）
     QComboBox *m_cmbSatisfaction;
     QTextEdit *m_textRemark;
     QPushButton *m_btnSave;

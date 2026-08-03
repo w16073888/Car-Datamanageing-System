@@ -18,6 +18,7 @@ public:
 private slots:
     void onDateRangeChanged(const QDate &start, const QDate &end);
     void onRefresh();
+    void onRowDoubleClicked(const QModelIndex &index);   // 双击工单行 → 打开工单详情弹窗
 
 private:
     void setupUI();

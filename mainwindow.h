@@ -22,7 +22,6 @@
 #include "pages/FinancePage.h"
 #include "pages/ServiceReminderPage.h"
 #include "pages/CustomerVisitPage.h"
-#include "pages/ExportPage.h"
 #include "pages/BusinessReportPage.h"
 #include "pages/InboundReportPage.h"
 #include "pages/OutboundReportPage.h"
@@ -69,7 +68,6 @@ private:
         PAGE_FINANCE,
         PAGE_SERVICE_REMINDER,
         PAGE_CUSTOMER_VISIT,
-        PAGE_EXPORT,
         PAGE_BUSINESS_REPORT,
         PAGE_INBOUND_REPORT,
         PAGE_OUTBOUND_REPORT,
@@ -112,7 +110,6 @@ private:
     QMenu *m_menuService;
     QAction *m_actServiceReminder;
     QAction *m_actCustomerVisit;
-    QAction *m_actExport;
 
     // 报表查询
     QMenu *m_menuReport;

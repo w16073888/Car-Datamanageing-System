@@ -21,7 +21,7 @@ MainWindow::MainWindow(QWidget *parent)
     // ============================================================
     setWindowTitle("科盟汽修综合数据管理");
     setWindowIcon(QIcon(QCoreApplication::applicationDirPath() + "/logo.ico"));
-    resize(1280, 720);
+    resize(1060, 600);
     setMinimumSize(960, 540);
 
     // 堆栈容器
@@ -49,8 +49,18 @@ MainWindow::MainWindow(QWidget *parent)
     // 全局样式
     applyStyleSheet();
 
-    // 默认显示第一个页面
-    m_stack->setCurrentIndex(0);
+    // 默认显示第一个页面（按职位选择入口，员工管理页仅经理可见）
+    {
+        const QString pos = Session::instance().position();
+        if (pos == "前台")
+            m_stack->setCurrentIndex(PAGE_QUOTE);             // 工单查询
+        else if (pos == "库管")
+            m_stack->setCurrentIndex(PAGE_DASHBOARD);         // 经营看板
+        else if (pos == "客服")
+            m_stack->setCurrentIndex(PAGE_CUSTOMER_VISIT);    // 客户回访
+        else
+            m_stack->setCurrentIndex(PAGE_EMPLOYEE);          // 员工管理
+    }
 
     qDebug() << "[MainWindow] 初始化完成，用户：" << Session::instance().userName();
 }
@@ -89,7 +99,6 @@ void MainWindow::setupPages()
     m_pages[PAGE_FINANCE]          = new FinancePage;
     m_pages[PAGE_SERVICE_REMINDER] = new ServiceReminderPage;
     m_pages[PAGE_CUSTOMER_VISIT]   = new CustomerVisitPage;
-    m_pages[PAGE_EXPORT]           = new ExportPage;
     m_pages[PAGE_BUSINESS_REPORT]  = new BusinessReportPage;
     m_pages[PAGE_INBOUND_REPORT]   = new InboundReportPage;
     m_pages[PAGE_OUTBOUND_REPORT]  = new OutboundReportPage;
@@ -183,7 +192,7 @@ void MainWindow::setupMenuBar()
 
     m_menuRepair->addSeparator();
 
-    m_actQuote = m_menuRepair->addAction("结算管理");
+    m_actQuote = m_menuRepair->addAction("工单查询");
     connect(m_actQuote, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_QUOTE);
     });
@@ -226,10 +235,6 @@ void MainWindow::setupMenuBar()
     connect(m_actCustomerVisit, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_CUSTOMER_VISIT);
     });
-    m_actExport = m_menuService->addAction("导出档案");
-    connect(m_actExport, &QAction::triggered, this, [this]() {
-        switchToPage(PAGE_EXPORT);
-    });
 
     // 报表查询
     m_menuReport = m_menuBar->addMenu("报表查询");
@@ -249,6 +254,17 @@ void MainWindow::setupMenuBar()
     connect(m_actDashboard, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_DASHBOARD);
     });
+
+    // ============================================================
+    // 按职位应用菜单权限（Session::hasPermission）
+    //   经理：全开放
+    //   前台/客服：关闭 库房管理；员工管理入口
+    //   库管：关闭 前台业务 / 服务跟踪；员工管理入口
+    // ============================================================
+    m_actEmployee->setVisible(Session::instance().hasPermission("员工管理"));
+    m_menuRepair->menuAction()->setVisible(Session::instance().hasPermission("前台业务"));
+    m_menuWarehouse->menuAction()->setVisible(Session::instance().hasPermission("库房管理"));
+    m_menuService->menuAction()->setVisible(Session::instance().hasPermission("服务跟踪"));
 }
 
 void MainWindow::switchToPage(int index)

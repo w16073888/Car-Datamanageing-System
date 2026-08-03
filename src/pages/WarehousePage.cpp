@@ -16,6 +16,7 @@
 #include <QSqlRecord>
 #include <QDialog>
 #include <QTableWidget>
+#include <algorithm>
 
 #define S_BTN1 "QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#3498db;color:#fff;font-size:12px;font-weight:bold;}"
 #define S_BTN1H S_BTN1 "QPushButton:hover{background:#2980b9;}"
@@ -127,7 +128,7 @@ bool WarehousePage::updateInstanceStatus(const QList<int> &instanceIds, const QS
 
 WarehousePage::WarehousePage(QWidget *parent)
     : QWidget(parent)
-    , m_issuePartId(0), m_billingOrderId(0), m_purPartId(0), m_retPartId(0), m_purRetPartId(0)
+    , m_issuePartId(0), m_billingOrderId(0), m_retPartId(0), m_retLockedWorkOrderId(0), m_purRetPartId(0)
 {
     setupUI();
 }
@@ -139,6 +140,7 @@ void WarehousePage::refreshData()
     m_issueOrderNo->clear(); m_issueRecipient->clear();
     m_issuePartSearch->clear(); m_spinIssueQty->setValue(1);
     m_issuePartId = 0; m_lblIssuePartInfo->setText("请搜索备件");
+    m_issueStatusBar->setText("当前未锁定工单");
 
     m_billingOrderNo->clear();
     m_lblBillingInfo->setText("请搜索工单");
@@ -147,12 +149,15 @@ void WarehousePage::refreshData()
     m_purPartSearch->clear();
     m_purPartNo->clear(); m_purPartName->clear(); m_purSpec->clear();
     m_purSupplier->clear(); m_purCost->setValue(0); m_purPrice->setValue(0);
-    m_purQty->setValue(1); m_purPartId = 0;
+    m_purQty->setValue(1);
+    m_purchaseList.clear();
+    refreshPurchaseList();
 
     m_stockKeyword->clear();
 
     m_retOrderNo->clear(); m_retPartSearch->clear();
-    m_retQty->setValue(1); m_retPartId = 0;
+    m_retQty->setValue(1); m_retPartId = 0; m_retLockedWorkOrderId = 0;
+    m_retStatusBar->setText("当前未锁定工单");
 
     m_purRetPartSearch->clear();
     m_purRetQty->setValue(1); m_purRetPartId = 0;
@@ -234,6 +239,13 @@ void WarehousePage::setupUI()
     issueOpLayout->addStretch();
     issueLayout->addWidget(issueOp);
 
+    // 状态栏：显示锁定的工单号和车牌号
+    m_issueStatusBar = new QLabel("当前未锁定工单");
+    m_issueStatusBar->setStyleSheet(
+        "padding:6px 10px;background:#eaf2f8;border:1px solid #aed6f1;"
+        "border-radius:3px;font-size:13px;font-weight:bold;color:#2c3e50;");
+    issueLayout->addWidget(m_issueStatusBar);
+
     m_tabWidget->addTab(m_tabIssue, "备件领取");
 
     // ============================================================
@@ -273,6 +285,11 @@ void WarehousePage::setupUI()
     m_btnConfirmBill->setStyleSheet("QPushButton{padding:8px 20px;border:none;border-radius:3px;background:#8e44ad;color:#fff;font-weight:bold;font-size:14px;}QPushButton:hover{background:#7d3c98;}");
     m_btnConfirmBill->setEnabled(false);
     billBottom->addWidget(m_btnConfirmBill);
+
+    m_btnCancelBill = new QPushButton("取消提单");
+    m_btnCancelBill->setStyleSheet("QPushButton{padding:8px 20px;border:none;border-radius:3px;background:#c0392b;color:#fff;font-weight:bold;font-size:14px;}QPushButton:hover{background:#a93226;}");
+    m_btnCancelBill->setEnabled(false);
+    billBottom->addWidget(m_btnCancelBill);
     billLayout->addLayout(billBottom);
 
     m_tabWidget->addTab(m_tabBilling, "材料结算/提单");
@@ -284,30 +301,41 @@ void WarehousePage::setupUI()
     QVBoxLayout *purLayout = new QVBoxLayout(m_tabPurchase);
     purLayout->setContentsMargins(10, 8, 10, 8);
 
-    QHBoxLayout *purSearch = new QHBoxLayout;
-    purSearch->addWidget(new QLabel("搜索备件:"));
-    m_purPartSearch = new QLineEdit;
-    m_purPartSearch->setPlaceholderText("编号/名称模糊搜索(留空显示全部)");
-    purSearch->addWidget(m_purPartSearch, 1);
-    m_btnPurSearch = new QPushButton("搜索");
-    m_btnPurSearch->setStyleSheet(S_BTN1H);
-    purSearch->addWidget(m_btnPurSearch);
-    purLayout->addLayout(purSearch);
+    // 本批入库清单标题 + 合计 + 移除按钮
+    QHBoxLayout *purListHeader = new QHBoxLayout;
+    QLabel *lblPurListTitle = new QLabel("本批入库清单:");
+    lblPurListTitle->setStyleSheet("font-size:13px;font-weight:bold;color:#2c3e50;");
+    purListHeader->addWidget(lblPurListTitle);
+    purListHeader->addStretch();
+    m_lblPurTotal = new QLabel("共 0 项 | 合计金额: ¥0.00");
+    m_lblPurTotal->setStyleSheet("font-size:13px;font-weight:bold;color:#e74c3c;");
+    purListHeader->addWidget(m_lblPurTotal);
+    m_btnPurRemoveItem = new QPushButton("移除选中");
+    m_btnPurRemoveItem->setStyleSheet(S_BTNGH);
+    purListHeader->addWidget(m_btnPurRemoveItem);
+    purLayout->addLayout(purListHeader);
 
     m_purTable = new QTableView;
     m_purTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_purTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_purTable->setAlternatingRowColors(true);
     m_purTable->horizontalHeader()->setStretchLastSection(true);
     m_purTable->verticalHeader()->setVisible(false);
     m_purTable->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:5px;}");
     purLayout->addWidget(m_purTable, 1);
-    m_purModel = new QSqlQueryModel(this);
+    m_purModel = new QStandardItemModel(this);
+    m_purModel->setHorizontalHeaderLabels(
+        {"备件编号","备件名称","规格型号","供应商","进货价","销售价","数量","小计(¥)"});
     m_purTable->setModel(m_purModel);
 
-    QGroupBox *purOp = new QGroupBox("采购入库");
+    // 采购入库输入区：含模糊搜索（搜索已有备件自动填充）
+    QGroupBox *purOp = new QGroupBox("采购入库 — 填写备件信息并「加入清单」");
     QGridLayout *purGrid = new QGridLayout(purOp);
     purGrid->setSpacing(4);
 
+    m_purPartSearch = new QLineEdit; m_purPartSearch->setPlaceholderText("搜索已有备件(编号/名称)自动填充");
+    m_btnPurSearch = new QPushButton("搜索");
+    m_btnPurSearch->setStyleSheet(S_BTN1H);
     m_purPartNo = new QLineEdit; m_purPartNo->setPlaceholderText("*必填");
     m_purPartName = new QLineEdit; m_purPartName->setPlaceholderText("*必填");
     m_purSpec = new QLineEdit; m_purSpec->setPlaceholderText("选填，默认唯一");
@@ -316,17 +344,23 @@ void WarehousePage::setupUI()
     m_purPrice = new QDoubleSpinBox; m_purPrice->setRange(0, 999999.99); m_purPrice->setPrefix("¥ "); m_purPrice->setDecimals(2);
     m_purQty = new QSpinBox; m_purQty->setRange(1, 99999);
 
-    purGrid->addWidget(new QLabel("备件编号*:"), 0, 0); purGrid->addWidget(m_purPartNo, 0, 1);
-    purGrid->addWidget(new QLabel("备件名称*:"), 0, 2); purGrid->addWidget(m_purPartName, 0, 3);
-    purGrid->addWidget(new QLabel("规格型号:"), 1, 0); purGrid->addWidget(m_purSpec, 1, 1);
-    purGrid->addWidget(new QLabel("供应商:"), 1, 2); purGrid->addWidget(m_purSupplier, 1, 3);
-    purGrid->addWidget(new QLabel("进货价:"), 2, 0); purGrid->addWidget(m_purCost, 2, 1);
-    purGrid->addWidget(new QLabel("销售价:"), 2, 2); purGrid->addWidget(m_purPrice, 2, 3);
-    purGrid->addWidget(new QLabel("数量:"), 3, 0); purGrid->addWidget(m_purQty, 3, 1);
-
+    purGrid->addWidget(new QLabel("模糊搜索:"), 0, 0);
+    purGrid->addWidget(m_purPartSearch, 0, 1, 1, 3);
+    purGrid->addWidget(new QLabel("备件编号*:"), 1, 0); purGrid->addWidget(m_purPartNo, 1, 1);
+    purGrid->addWidget(new QLabel("备件名称*:"), 1, 2); purGrid->addWidget(m_purPartName, 1, 3);
+    purGrid->addWidget(new QLabel("规格型号:"), 2, 0); purGrid->addWidget(m_purSpec, 2, 1);
+    purGrid->addWidget(new QLabel("供应商:"), 2, 2); purGrid->addWidget(m_purSupplier, 2, 3);
+    purGrid->addWidget(new QLabel("进货价:"), 3, 0); purGrid->addWidget(m_purCost, 3, 1);
+    purGrid->addWidget(new QLabel("销售价:"), 3, 2); purGrid->addWidget(m_purPrice, 3, 3);
+    purGrid->addWidget(new QLabel("数量:"), 4, 0); purGrid->addWidget(m_purQty, 4, 1);
+    // 按钮顺序: 搜索 → 加入清单 → 确认入库
+    purGrid->addWidget(m_btnPurSearch, 4, 2);
+    m_btnPurAddItem = new QPushButton("加入清单");
+    m_btnPurAddItem->setStyleSheet("QPushButton{padding:8px 20px;border:none;border-radius:3px;background:#3498db;color:#fff;font-weight:bold;}QPushButton:hover{background:#2980b9;}");
+    purGrid->addWidget(m_btnPurAddItem, 4, 3);
     m_btnPurConfirm = new QPushButton("确认入库");
-    m_btnPurConfirm->setStyleSheet("QPushButton{padding:8px 20px;border:none;border-radius:3px;background:#27ae60;color:#fff;font-weight:bold;}QPushButton:hover{background:#219a52;}");
-    purGrid->addWidget(m_btnPurConfirm, 3, 2, 1, 2);
+    m_btnPurConfirm->setStyleSheet("QPushButton{padding:9px 20px;border:none;border-radius:3px;background:#27ae60;color:#fff;font-weight:bold;font-size:13px;}QPushButton:hover{background:#219a52;}");
+    purGrid->addWidget(m_btnPurConfirm, 5, 0, 1, 4);
     purLayout->addWidget(purOp);
 
     m_tabWidget->addTab(m_tabPurchase, "采购入库");
@@ -368,13 +402,13 @@ void WarehousePage::setupUI()
     retLayout->setContentsMargins(10, 8, 10, 8);
 
     QHBoxLayout *retTop = new QHBoxLayout;
-    retTop->addWidget(new QLabel("原工单号:"));
+    retTop->addWidget(new QLabel("查询工单:"));
     m_retOrderNo = new QLineEdit;
-    m_retOrderNo->setPlaceholderText("输入原出库工单号(选填)");
+    m_retOrderNo->setPlaceholderText("输入工单号或车牌号模糊搜索");
     retTop->addWidget(m_retOrderNo, 1);
     retTop->addWidget(new QLabel("搜索备件:"));
     m_retPartSearch = new QLineEdit;
-    m_retPartSearch->setPlaceholderText("编号/名称");
+    m_retPartSearch->setPlaceholderText("编号/名称（仅搜索已领出备件）");
     retTop->addWidget(m_retPartSearch, 1);
     m_btnRetSearch = new QPushButton("搜索");
     m_btnRetSearch->setStyleSheet(S_BTN1H);
@@ -402,6 +436,13 @@ void WarehousePage::setupUI()
     retOp->addStretch();
     retLayout->addLayout(retOp);
 
+    // 状态栏：显示锁定的工单号和车牌号
+    m_retStatusBar = new QLabel("当前未锁定工单");
+    m_retStatusBar->setStyleSheet(
+        "padding:6px 10px;background:#eaf2f8;border:1px solid #aed6f1;"
+        "border-radius:3px;font-size:13px;font-weight:bold;color:#2c3e50;");
+    retLayout->addWidget(m_retStatusBar);
+
     m_tabWidget->addTab(m_tabReturn, "备件退库");
 
     // ============================================================
@@ -414,7 +455,7 @@ void WarehousePage::setupUI()
     QHBoxLayout *purRetTop = new QHBoxLayout;
     purRetTop->addWidget(new QLabel("搜索在库备件:"));
     m_purRetPartSearch = new QLineEdit;
-    m_purRetPartSearch->setPlaceholderText("编号/名称(仅搜索在库中的备件)");
+    m_purRetPartSearch->setPlaceholderText("编号/名称（仅搜索在库备件）");
     purRetTop->addWidget(m_purRetPartSearch, 1);
     m_btnPurRetSearch = new QPushButton("搜索");
     m_btnPurRetSearch->setStyleSheet(S_BTN1H);
@@ -446,6 +487,9 @@ void WarehousePage::setupUI()
 
     mainLayout->addWidget(m_tabWidget, 1);
 
+    // Tab 切换时自动刷新对应页面
+    connect(m_tabWidget, &QTabWidget::currentChanged, this, &WarehousePage::onTabChanged);
+
     // ============================================================
     // Signals
     // ============================================================
@@ -470,23 +514,46 @@ void WarehousePage::setupUI()
         onBillingOrderSearchTextChanged(m_billingOrderNo->text());
     });
     connect(m_btnConfirmBill, &QPushButton::clicked, this, &WarehousePage::onCompareAndBill);
+    connect(m_btnCancelBill, &QPushButton::clicked, this, &WarehousePage::onCancelBill);
 
     connect(m_btnPurSearch, &QPushButton::clicked, this, &WarehousePage::onPurchaseSearch);
-    connect(m_purTable, &QTableView::clicked, [this](const QModelIndex &idx) {
-        if (!idx.isValid()) return;
-        int row = idx.row();
-        m_purPartId = m_purModel->data(m_purModel->index(row, 0)).toInt();
-        m_purPartNo->setText(m_purModel->data(m_purModel->index(row, 1)).toString());
-        m_purPartName->setText(m_purModel->data(m_purModel->index(row, 2)).toString());
-        // column 3 is 规格型号 from merged query (may contain auto-generated unique label)
-        QString spec = m_purModel->data(m_purModel->index(row, 3)).toString();
-        m_purSpec->setText(spec.startsWith("(无型号-") ? "" : spec);
-    });
+    connect(m_purPartSearch, &QLineEdit::returnPressed, this, &WarehousePage::onPurchaseSearch);
+    connect(m_btnPurAddItem, &QPushButton::clicked, this, &WarehousePage::onPurchaseAddItem);
+    connect(m_btnPurRemoveItem, &QPushButton::clicked, this, &WarehousePage::onPurchaseRemoveItem);
     connect(m_btnPurConfirm, &QPushButton::clicked, this, &WarehousePage::onPurchaseConfirm);
 
     connect(m_btnStockSearch, &QPushButton::clicked, this, &WarehousePage::onStockSearch);
 
+    // 备件退库 — 工单搜索弹窗 + 状态栏更新 + 锁定工单ID
+    connect(m_retOrderNo, &QLineEdit::returnPressed, this, [this]() {
+        if (m_retOrderNo->text().trimmed().isEmpty()) return;
+        if (showWorkOrderSearchPopup(m_retOrderNo)) {
+            QString orderNo = m_retOrderNo->text().trimmed();
+            QSqlQuery q(DbManager::instance().database());
+            q.prepare("SELECT w.id, v.plate_number FROM t_workorder w "
+                      "LEFT JOIN t_vehicle v ON v.id = w.vehicle_id "
+                      "WHERE w.order_no = :no");
+            q.bindValue(":no", orderNo);
+            DbManager::instance().executeQuery(q);
+            if (q.next()) {
+                m_retLockedWorkOrderId = q.value(0).toInt();
+                QString plate = q.value(1).toString();
+                if (!plate.isEmpty())
+                    m_retStatusBar->setText(QString("当前工单: %1 | 车牌号: %2 | 仅搜索本工单已领出备件").arg(orderNo, plate));
+                else
+                    m_retStatusBar->setText(QString("当前工单: %1 | 仅搜索本工单已领出备件").arg(orderNo));
+            }
+        }
+    });
+    // 清空工单号时重置锁定
+    connect(m_retOrderNo, &QLineEdit::textChanged, this, [this](const QString &txt) {
+        if (txt.trimmed().isEmpty()) {
+            m_retLockedWorkOrderId = 0;
+            m_retStatusBar->setText("当前未锁定工单");
+        }
+    });
     connect(m_btnRetSearch, &QPushButton::clicked, this, &WarehousePage::onReturnSearch);
+    connect(m_retPartSearch, &QLineEdit::returnPressed, this, &WarehousePage::onReturnSearch);
     connect(m_retTable, &QTableView::clicked, [this](const QModelIndex &idx) {
         if (!idx.isValid()) return;
         int row = idx.row();
@@ -511,7 +578,7 @@ void WarehousePage::setupUI()
 // 工单搜索弹窗（共用）— 按工单号/车牌模糊搜索，仅"已派工"工单
 // ============================================================
 
-bool WarehousePage::showWorkOrderSearchPopup(QLineEdit *targetField)
+bool WarehousePage::showWorkOrderSearchPopup(QLineEdit *targetField, const QString &statusFilter)
 {
     QString text = targetField->text().trimmed();
     if (text.isEmpty()) return false;
@@ -519,15 +586,27 @@ bool WarehousePage::showWorkOrderSearchPopup(QLineEdit *targetField)
     QString kw = text;
     kw.replace("'", "''");
 
+    // 构建状态条件（支持逗号分隔的多状态）
+    QString statusWhere;
+    QStringList statusList = statusFilter.split(',', Qt::SkipEmptyParts);
+    if (statusList.size() == 1) {
+        statusWhere = QString("w.status = '%1'").arg(statusList[0].trimmed());
+    } else {
+        QStringList parts;
+        for (const QString &s : statusList)
+            parts << "'" + s.trimmed() + "'";
+        statusWhere = "w.status IN (" + parts.join(",") + ")";
+    }
+
     QSqlQuery q(DbManager::instance().database());
     q.prepare(QString(
         "SELECT w.id, w.order_no, w.status, COALESCE(v.plate_number,'') AS plate, "
         "w.repair_content, w.created_at "
         "FROM t_workorder w "
         "LEFT JOIN t_vehicle v ON v.id = w.vehicle_id "
-        "WHERE w.status = '已派工' "
+        "WHERE %2 "
         "AND (w.order_no LIKE '%%1%' OR v.plate_number LIKE '%%1%') "
-        "ORDER BY w.id DESC LIMIT 30").arg(kw));
+        "ORDER BY w.id DESC LIMIT 30").arg(kw, statusWhere));
     DbManager::instance().executeQuery(q);
 
     if (!q.next()) {
@@ -558,7 +637,8 @@ bool WarehousePage::showWorkOrderSearchPopup(QLineEdit *targetField)
 
     // 多结果 → 弹窗选择
     QDialog dlg(targetField->window());
-    dlg.setWindowTitle("选择工单 — 已派工");
+    QString displayFilter = statusFilter;
+    dlg.setWindowTitle(QString("选择工单 — %1").arg(displayFilter.replace(',', " / ")));
     dlg.resize(680, 340);
 
     QVBoxLayout *dl = new QVBoxLayout(&dlg);
@@ -619,7 +699,31 @@ bool WarehousePage::showWorkOrderSearchPopup(QLineEdit *targetField)
 void WarehousePage::onIssueOrderSearchTextChanged(const QString &text)
 {
     if (text.trimmed().isEmpty()) return;
-    showWorkOrderSearchPopup(m_issueOrderNo);
+    if (showWorkOrderSearchPopup(m_issueOrderNo)) {
+        // 工单锁定成功 → 查询车牌号并更新状态栏
+        QString orderNo = m_issueOrderNo->text().trimmed();
+        QSqlQuery q(DbManager::instance().database());
+        q.prepare("SELECT v.plate_number FROM t_workorder w "
+                  "LEFT JOIN t_vehicle v ON v.id = w.vehicle_id "
+                  "WHERE w.order_no = :no");
+        q.bindValue(":no", orderNo);
+        DbManager::instance().executeQuery(q);
+        if (q.next() && !q.value(0).toString().isEmpty()) {
+            m_issueStatusBar->setText(
+                QString("当前工单: %1 | 车牌号: %2").arg(orderNo, q.value(0).toString()));
+        } else {
+            m_issueStatusBar->setText(QString("当前工单: %1").arg(orderNo));
+        }
+        m_issueStatusBar->setVisible(true);
+    } else {
+        // 无匹配结果 → 提示用户
+        QMessageBox::information(this, "未找到",
+            QString("未找到包含「%1」的已派工工单。\n\n"
+                    "可能原因：\n"
+                    "• 工单号或车牌号输入有误\n"
+                    "• 工单状态不是「已派工」（可能已进入维修/提单/结算阶段）")
+            .arg(text.trimmed()));
+    }
 }
 
 // ============================================================
@@ -628,9 +732,16 @@ void WarehousePage::onIssueOrderSearchTextChanged(const QString &text)
 void WarehousePage::onBillingOrderSearchTextChanged(const QString &text)
 {
     if (text.trimmed().isEmpty()) return;
-    if (showWorkOrderSearchPopup(m_billingOrderNo)) {
+    if (showWorkOrderSearchPopup(m_billingOrderNo, "待提单,已提单")) {
         // 用户选择了工单 → 自动触发票据搜索加载明细
         onBillingSearchOrder();
+    } else {
+        QMessageBox::information(this, "未找到",
+            QString("未找到包含「%1」的待提单或已提单工单。\n\n"
+                    "可能原因：\n"
+                    "• 工单号或车牌号输入有误\n"
+                    "• 工单状态不是「待提单」或「已提单」")
+            .arg(text.trimmed()));
     }
 }
 
@@ -696,7 +807,8 @@ void WarehousePage::onPartsIssue()
 
     // 获取备件信息
     QSqlQuery q(DbManager::instance().database());
-    q.prepare("SELECT part_no, name, COALESCE(sale_price, 0) FROM t_parts WHERE id = :id");
+    q.prepare("SELECT part_no, name, "
+              "COALESCE(NULLIF(sale_price, 0), purchase_price, 0) FROM t_parts WHERE id = :id");
     q.bindValue(":id", m_issuePartId);
     DbManager::instance().executeQuery(q);
     if (!q.next()) return;
@@ -758,6 +870,25 @@ void WarehousePage::onPartsIssue()
     }
 
     DbManager::instance().commitTransaction();
+
+    // 同步更新维修历史：备件摘要
+    if (woid > 0) {
+        QStringList psList;
+        QSqlQuery psq(DbManager::instance().database());
+        psq.prepare("SELECT part_name, COUNT(*) FROM t_workorder_item "
+                    "WHERE workorder_id = :oid AND item_type = '材料' "
+                    "GROUP BY part_name");
+        psq.bindValue(":oid", woid);
+        DbManager::instance().executeQuery(psq);
+        while (psq.next())
+            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(psq.value(1).toInt());
+        QSqlQuery mu(DbManager::instance().database());
+        mu.prepare("UPDATE t_maintenance_history SET parts_summary=:ps WHERE workorder_id=:oid");
+        mu.bindValue(":ps", psList.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : psList.join(", "));
+        mu.bindValue(":oid", woid);
+        DbManager::instance().executeQuery(mu);
+    }
+
     QMessageBox::information(this, "出库成功",
         QString("备件「%1」x %2 已出库\n工单: %3\n领取人: %4")
         .arg(partName).arg(qty).arg(orderNo).arg(recipient));
@@ -814,24 +945,43 @@ void WarehousePage::onBillingSearchOrder()
     double matTotal = q3.next() ? q3.value(0).toDouble() : 0;
     m_lblBillingTotal->setText(QString("材料费合计: ¥%1").arg(matTotal, 0, 'f', 2));
 
-    if (status == "已派工" || status == "待提单" || status == "维修中") {
-        m_btnConfirmBill->setEnabled(true);
-    } else if (status == "已提单") {
-        m_btnConfirmBill->setEnabled(false);
-        QMessageBox::information(this, "提示", "该工单已完成提单");
+    m_btnConfirmBill->setEnabled(status == "待提单");
+    m_btnCancelBill->setEnabled(status == "已提单");
+
+    if (status == "已派工") {
+        QMessageBox::information(this, "提示", "该工单尚未通知提单，请先由前台通知提单后再操作");
     } else if (status == "已结算") {
-        m_btnConfirmBill->setEnabled(false);
-        QMessageBox::information(this, "提示", "该工单已结算");
-    } else {
-        m_btnConfirmBill->setEnabled(false);
+        QMessageBox::information(this, "提示", "该工单已结算，无法操作");
+    } else if (status != "待提单" && status != "已提单") {
         QMessageBox::warning(this, "状态错误",
-            QString("当前状态为「%1」，需要「已派工」「待提单」或「维修中」才能提单").arg(status));
+            QString("当前状态为「%1」，需要「待提单」或「已提单」才能操作").arg(status));
     }
 }
 
 void WarehousePage::onCompareAndBill()
 {
     if (m_billingOrderId == 0) return;
+
+    // 检查当前工单状态
+    {
+        QSqlQuery cq(DbManager::instance().database());
+        cq.prepare("SELECT status FROM t_workorder WHERE id = :id");
+        cq.bindValue(":id", m_billingOrderId);
+        DbManager::instance().executeQuery(cq);
+        if (cq.next()) {
+            QString st = cq.value(0).toString();
+            if (st == "已提单") {
+                QMessageBox::warning(this, "操作无效",
+                    "该工单状态为「已提单」，无需再次提单。\n如需撤销提单，请使用「取消提单」按钮。");
+                return;
+            }
+            if (st != "待提单" && st != "已派工") {
+                QMessageBox::warning(this, "操作无效",
+                    QString("当前工单状态为「%1」，无法执行提单操作。").arg(st));
+                return;
+            }
+        }
+    }
 
     if (QMessageBox::question(this, "确认提单",
             "确认对本次材料数据进行提单？\n"
@@ -857,12 +1007,12 @@ void WarehousePage::onCompareAndBill()
 
     // 更新工单状态为"已提单"
     q.prepare("UPDATE t_workorder SET status = '已提单', material_fee = :mat "
-              "WHERE id = :id AND status IN ('已派工','待提单','维修中')");
+              "WHERE id = :id AND status IN ('已派工','待提单')");
     q.bindValue(":mat", matTotal);
     q.bindValue(":id", m_billingOrderId);
     if (!DbManager::instance().executeQuery(q) || q.numRowsAffected() == 0) {
         DbManager::instance().rollbackTransaction();
-        QMessageBox::warning(this, "提单失败", "状态更新失败，请确认工单状态为「已派工」「待提单」或「维修中」");
+        QMessageBox::warning(this, "提单失败", "状态更新失败，请确认工单状态为「已派工」或「待提单」");
         return;
     }
 
@@ -919,46 +1069,208 @@ void WarehousePage::onCompareAndBill()
 
     DbManager::instance().commitTransaction();
 
+    // 同步更新维修历史：状态 + 材料费 + 备件摘要
+    {
+        QStringList psList;
+        QSqlQuery psq(DbManager::instance().database());
+        psq.prepare("SELECT part_name, COUNT(*) FROM t_workorder_item "
+                    "WHERE workorder_id = :oid AND item_type = '材料' "
+                    "GROUP BY part_name");
+        psq.bindValue(":oid", m_billingOrderId);
+        DbManager::instance().executeQuery(psq);
+        while (psq.next())
+            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(psq.value(1).toInt());
+        QString ps = psList.join(", ");
+
+        QSqlQuery mu(DbManager::instance().database());
+        mu.prepare("UPDATE t_maintenance_history SET status='已提单', material_fee=:mat, "
+                   "parts_summary=:ps WHERE workorder_id=:oid");
+        mu.bindValue(":mat", matTotal);
+        mu.bindValue(":ps", ps.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : ps);
+        mu.bindValue(":oid", m_billingOrderId);
+        DbManager::instance().executeQuery(mu);
+    }
+
     QMessageBox::information(this, "提单成功",
         QString("工单材料审核已通过，已设置为「已提单」状态\n"
                 "备件已绑定到车辆，材料费合计: ¥%1\n前台可进行结算操作")
         .arg(matTotal, 0, 'f', 2));
     m_btnConfirmBill->setEnabled(false);
+    m_btnCancelBill->setEnabled(true);
     {
         QString txt = m_lblBillingInfo->text();
-        txt.replace("已派工", "已提单").replace("待提单", "已提单").replace("维修中", "已提单");
+        txt.replace("已派工", "已提单").replace("待提单", "已提单");
         m_lblBillingInfo->setText(txt);
     }
 }
 
 // ============================================================
-// Tab 2: 采购入库 — 每个数量创建独立实例
+// 取消提单: 已提单 → 待提单
+// ============================================================
+void WarehousePage::onCancelBill()
+{
+    if (m_billingOrderId == 0) return;
+
+    // 检查当前工单状态
+    QSqlQuery cq(DbManager::instance().database());
+    cq.prepare("SELECT status FROM t_workorder WHERE id = :id");
+    cq.bindValue(":id", m_billingOrderId);
+    DbManager::instance().executeQuery(cq);
+    if (cq.next()) {
+        QString st = cq.value(0).toString();
+        if (st == "待提单") {
+            QMessageBox::warning(this, "操作无效",
+                "该工单状态为「待提单」，尚未确认提单，无需取消。\n如需提单，请使用「确认提单」按钮。");
+            return;
+        }
+        if (st != "已提单") {
+            QMessageBox::warning(this, "操作无效",
+                QString("当前工单状态为「%1」，无法执行取消提单操作。").arg(st));
+            return;
+        }
+    }
+
+    if (QMessageBox::question(this, "确认取消提单",
+            "确认撤销本次提单？\n\n"
+            "撤销后工单状态将从「已提单」恢复为「待提单」，\n"
+            "已安装的备件将恢复为已领出状态。\n\n"
+            "请谨慎操作。",
+            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    DbManager::instance().beginTransaction();
+    QSqlQuery q(DbManager::instance().database());
+
+    // 更新工单状态为待提单
+    q.prepare("UPDATE t_workorder SET status = '待提单' WHERE id = :id AND status = '已提单'");
+    q.bindValue(":id", m_billingOrderId);
+    if (!DbManager::instance().executeQuery(q) || q.numRowsAffected() == 0) {
+        DbManager::instance().rollbackTransaction();
+        QMessageBox::warning(this, "取消失败", "状态更新失败，工单状态可能已变更");
+        return;
+    }
+
+    // 将该工单关联的已安装实例恢复为已领出
+    q.prepare("UPDATE t_part_instance SET status = '已领出', vehicle_id = NULL, "
+              "updated_at = NOW() WHERE workorder_id = :wid AND status = '已安装'");
+    q.bindValue(":wid", m_billingOrderId);
+    DbManager::instance().executeQuery(q);
+
+    DbManager::instance().commitTransaction();
+
+    // 同步更新维修历史状态
+    {
+        QSqlQuery mu(DbManager::instance().database());
+        mu.prepare("UPDATE t_maintenance_history SET status='待提单' WHERE workorder_id=:oid");
+        mu.bindValue(":oid", m_billingOrderId);
+        DbManager::instance().executeQuery(mu);
+    }
+
+    m_btnConfirmBill->setEnabled(true);
+    m_btnCancelBill->setEnabled(false);
+    {
+        QString txt = m_lblBillingInfo->text();
+        txt.replace("已提单", "待提单");
+        m_lblBillingInfo->setText(txt);
+    }
+
+    QMessageBox::information(this, "取消成功",
+        "提单已撤销，工单状态恢复为「待提单」，备件已恢复为已领出状态。");
+}
+
+// ============================================================
+// Tab 2: 采购入库（按批进货）— 批次清单模式
 // ============================================================
 
+// 模糊搜索已有备件并自动填充输入区（功能与旧版一致）
 void WarehousePage::onPurchaseSearch()
 {
     QString keyword = m_purPartSearch->text().trimmed();
-    QString extraCols = QString(
-        "COUNT(CASE WHEN i.status='在库' THEN 1 END) AS '在库', "
-        "COUNT(CASE WHEN i.status NOT IN ('已退货') THEN 1 END) AS '总数', "
-        "COALESCE(p.purchase_price, 0) AS '进货价', "
-        "COALESCE(p.sale_price, 0) AS '销售价'");
-
-    QString where;
-    if (!keyword.isEmpty()) {
-        where = QString("p.part_no LIKE '%%1%' OR p.name LIKE '%%1%'")
-                .arg(keyword.replace("'", "''"));
+    if (keyword.isEmpty()) {
+        QMessageBox::information(this, "提示", "请输入备件编号或名称关键字进行搜索");
+        return;
     }
 
-    QString sql = mergedSelectSQL(extraCols, where,
-        "p.purchase_price, p.sale_price", "ORDER BY p.name LIMIT 200");
     QSqlQuery q(DbManager::instance().database());
-    q.prepare(sql);
+    q.prepare("SELECT p.id, p.part_no, p.name, COALESCE(NULLIF(p.spec,''),''), COALESCE(p.supplier,'') "
+              "FROM t_parts p WHERE p.part_no LIKE :kw OR p.name LIKE :kw "
+              "ORDER BY p.name LIMIT 30");
+    q.bindValue(":kw", "%" + keyword + "%");
     DbManager::instance().executeQuery(q);
-    m_purModel->setQuery(std::move(q));
+
+    struct Match { QString no, name, spec, supplier; };
+    QList<Match> rows;
+    while (q.next())
+        rows << Match{q.value(1).toString(), q.value(2).toString(),
+                      q.value(3).toString(), q.value(4).toString()};
+
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, "未找到",
+            QString("未找到包含「%1」的已有备件。\n可直接在下方手动填写，新备件将在入库时自动建档。").arg(keyword));
+        return;
+    }
+
+    // 唯一匹配 → 直接填充
+    if (rows.size() == 1) {
+        m_purPartNo->setText(rows[0].no);
+        m_purPartName->setText(rows[0].name);
+        m_purSpec->setText(rows[0].spec);
+        m_purPartNo->setFocus();
+        return;
+    }
+
+    // 多结果 → 弹窗选择
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString("选择已有备件 — %1").arg(keyword));
+    dlg.resize(560, 340);
+    QVBoxLayout *dl = new QVBoxLayout(&dlg);
+
+    QTableWidget *tbl = new QTableWidget;
+    tbl->setColumnCount(4);
+    tbl->setHorizontalHeaderLabels({"备件编号", "备件名称", "规格型号", "供应商"});
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setSelectionMode(QAbstractItemView::SingleSelection);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->verticalHeader()->setVisible(false);
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    tbl->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    tbl->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:3px;font-size:11px;}");
+    tbl->setAlternatingRowColors(true);
+
+    tbl->setRowCount(rows.size());
+    for (int i = 0; i < rows.size(); i++) {
+        tbl->setItem(i, 0, new QTableWidgetItem(rows[i].no));
+        tbl->setItem(i, 1, new QTableWidgetItem(rows[i].name));
+        tbl->setItem(i, 2, new QTableWidgetItem(rows[i].spec));
+        tbl->setItem(i, 3, new QTableWidgetItem(rows[i].supplier));
+    }
+    dl->addWidget(tbl, 1);
+
+    QHBoxLayout *bb = new QHBoxLayout;
+    QPushButton *ok = new QPushButton("选择");
+    ok->setStyleSheet(S_BTN1H);
+    QPushButton *ca = new QPushButton("取消");
+    ca->setStyleSheet(S_BTNGH);
+    bb->addStretch();
+    bb->addWidget(ok);
+    bb->addWidget(ca);
+    dl->addLayout(bb);
+
+    connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
+    connect(ca, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(tbl, &QTableWidget::cellDoubleClicked, &dlg, &QDialog::accept);
+
+    if (dlg.exec() == QDialog::Accepted && tbl->currentRow() >= 0) {
+        int r = tbl->currentRow();
+        m_purPartNo->setText(rows[r].no);
+        m_purPartName->setText(rows[r].name);
+        m_purSpec->setText(rows[r].spec);
+        m_purPartNo->setFocus();
+    }
 }
 
-void WarehousePage::onPurchaseConfirm()
+// 将当前输入区的备件加入本批清单
+void WarehousePage::onPurchaseAddItem()
 {
     QString partNo = m_purPartNo->text().trimmed();
     QString partName = m_purPartName->text().trimmed();
@@ -966,19 +1278,159 @@ void WarehousePage::onPurchaseConfirm()
         QMessageBox::warning(this, "提示", "备件编号和名称为必填项");
         return;
     }
-    int qty = m_purQty->value();
-    double cost = m_purCost->value();
-    double price = m_purPrice->value();
-    QString spec = m_purSpec->text().trimmed();
-    QString supplier = m_purSupplier->text().trimmed();
 
+    PurchaseItem it;
+    it.partNo = partNo;
+    it.partName = partName;
+    it.spec = m_purSpec->text().trimmed();
+    it.supplier = m_purSupplier->text().trimmed();
+    it.cost = m_purCost->value();
+    it.price = m_purPrice->value();
+    it.qty = m_purQty->value();
+
+    m_purchaseList << it;
+    refreshPurchaseList();
+
+    // 清空输入区，方便连续录入
+    m_purPartNo->clear(); m_purPartName->clear(); m_purSpec->clear();
+    m_purSupplier->clear(); m_purCost->setValue(0); m_purPrice->setValue(0);
+    m_purQty->setValue(1);
+    m_purPartNo->setFocus();
+}
+
+// 从清单移除选中项
+void WarehousePage::onPurchaseRemoveItem()
+{
+    QModelIndexList sel = m_purTable->selectionModel()->selectedRows();
+    if (sel.isEmpty()) {
+        QMessageBox::warning(this, "提示", "请先在清单中选中要移除的行");
+        return;
+    }
+    QList<int> rows;
+    for (const QModelIndex &idx : sel) rows << idx.row();
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    for (int r : rows) {
+        if (r >= 0 && r < m_purchaseList.size())
+            m_purchaseList.removeAt(r);
+    }
+    refreshPurchaseList();
+}
+
+// 刷新清单表格显示
+void WarehousePage::refreshPurchaseList()
+{
+    m_purModel->removeRows(0, m_purModel->rowCount());
+    double total = 0;
+    int totalQty = 0;
+    for (const PurchaseItem &it : m_purchaseList) {
+        double sub = it.cost * it.qty;
+        total += sub;
+        totalQty += it.qty;
+        QList<QStandardItem*> row;
+        row << new QStandardItem(it.partNo)
+            << new QStandardItem(it.partName)
+            << new QStandardItem(it.spec)
+            << new QStandardItem(it.supplier)
+            << new QStandardItem(QString::number(it.cost, 'f', 2))
+            << new QStandardItem(QString::number(it.price, 'f', 2))
+            << new QStandardItem(QString::number(it.qty))
+            << new QStandardItem(QString::number(sub, 'f', 2));
+        m_purModel->appendRow(row);
+    }
+    m_lblPurTotal->setText(QString("共 %1 项 / %2 件 | 合计金额: ¥%3")
+                           .arg(m_purchaseList.size()).arg(totalQty).arg(total, 0, 'f', 2));
+}
+
+// 确认入库：弹窗确认后批量入库
+void WarehousePage::onPurchaseConfirm()
+{
+    if (m_purchaseList.isEmpty()) {
+        QMessageBox::warning(this, "提示", "清单为空，请先填写备件信息并点击「加入清单」");
+        return;
+    }
+
+    // 确认弹窗
+    QDialog dlg(this);
+    dlg.setWindowTitle("确认本批入库");
+    dlg.resize(680, 440);
+    QVBoxLayout *dl = new QVBoxLayout(&dlg);
+
+    QLabel *tip = new QLabel(QString("以下 %1 种备件将全部入库，请核对无误：").arg(m_purchaseList.size()));
+    tip->setStyleSheet("font-weight:bold;");
+    dl->addWidget(tip);
+
+    QTableWidget *tbl = new QTableWidget;
+    tbl->setColumnCount(7);
+    tbl->setHorizontalHeaderLabels({"备件编号", "备件名称", "规格型号", "数量", "进货价", "小计", "供应商"});
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->verticalHeader()->setVisible(false);
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    tbl->setAlternatingRowColors(true);
+    tbl->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:3px;font-size:11px;}");
+
+    tbl->setRowCount(m_purchaseList.size());
+    double total = 0;
+    for (int i = 0; i < m_purchaseList.size(); i++) {
+        const PurchaseItem &it = m_purchaseList[i];
+        double sub = it.cost * it.qty;
+        total += sub;
+        tbl->setItem(i, 0, new QTableWidgetItem(it.partNo));
+        tbl->setItem(i, 1, new QTableWidgetItem(it.partName));
+        tbl->setItem(i, 2, new QTableWidgetItem(it.spec));
+        tbl->setItem(i, 3, new QTableWidgetItem(QString::number(it.qty)));
+        tbl->setItem(i, 4, new QTableWidgetItem(QString("¥%1").arg(it.cost, 0, 'f', 2)));
+        tbl->setItem(i, 5, new QTableWidgetItem(QString("¥%1").arg(sub, 0, 'f', 2)));
+        tbl->setItem(i, 6, new QTableWidgetItem(it.supplier));
+    }
+    dl->addWidget(tbl, 1);
+
+    QHBoxLayout *bb = new QHBoxLayout;
+    QLabel *lblTotal = new QLabel(QString("合计金额: ¥%1").arg(total, 0, 'f', 2));
+    lblTotal->setStyleSheet("font-size:16px;font-weight:bold;color:#e74c3c;");
+    bb->addWidget(lblTotal);
+    bb->addStretch();
+    QPushButton *ok = new QPushButton("确认入库");
+    ok->setStyleSheet("QPushButton{padding:8px 20px;border:none;border-radius:3px;background:#27ae60;color:#fff;font-weight:bold;}QPushButton:hover{background:#219a52;}");
+    QPushButton *ca = new QPushButton("返回修改");
+    ca->setStyleSheet(S_BTNGH);
+    bb->addWidget(ca);
+    bb->addWidget(ok);
+    dl->addLayout(bb);
+
+    connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
+    connect(ca, &QPushButton::clicked, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    // 批量执行入库（单事务，任一失败整体回滚）
     DbManager::instance().beginTransaction();
+    bool allOk = true;
+    for (const PurchaseItem &it : m_purchaseList) {
+        if (!doPurchaseInbound(it)) { allOk = false; break; }
+    }
+    if (!allOk) {
+        DbManager::instance().rollbackTransaction();
+        QMessageBox::warning(this, "入库失败", "本批入库已整体回滚，请检查错误信息后重试");
+        return;
+    }
+    DbManager::instance().commitTransaction();
+
+    QMessageBox::information(this, "入库成功",
+        QString("本批共 %1 种备件已全部入库").arg(m_purchaseList.size()));
+    m_purchaseList.clear();
+    refreshPurchaseList();
+}
+
+// 单条备件入库（在调用方事务内执行）
+bool WarehousePage::doPurchaseInbound(const PurchaseItem &it)
+{
     QSqlQuery q(DbManager::instance().database());
 
-    int catalogId;
     // 检查是否已有该备件编号
+    int catalogId;
     q.prepare("SELECT id FROM t_parts WHERE part_no = :no");
-    q.bindValue(":no", partNo);
+    q.bindValue(":no", it.partNo);
     DbManager::instance().executeQuery(q);
 
     if (q.next()) {
@@ -990,43 +1442,43 @@ void WarehousePage::onPurchaseConfirm()
                   "purchase_price = COALESCE(:cost, purchase_price), "
                   "sale_price = COALESCE(:price, sale_price) "
                   "WHERE id = :id");
-        u.bindValue(":name", partName);
-        u.bindValue(":spec", spec.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : spec);
-        u.bindValue(":sup", supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : supplier);
-        u.bindValue(":cost", cost > 0 ? cost : QVariant(QMetaType::fromType<double>()));
-        u.bindValue(":price", price > 0 ? price : QVariant(QMetaType::fromType<double>()));
+        u.bindValue(":name", it.partName);
+        u.bindValue(":spec", it.spec.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : it.spec);
+        u.bindValue(":sup", it.supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : it.supplier);
+        u.bindValue(":cost", it.cost > 0 ? it.cost : QVariant(QMetaType::fromType<double>()));
+        u.bindValue(":price", it.price > 0 ? it.price : QVariant(QMetaType::fromType<double>()));
         u.bindValue(":id", catalogId);
         DbManager::instance().executeQuery(u);
     } else {
         // 新建备件目录
         q.prepare("INSERT INTO t_parts (part_no, name, spec, stock, purchase_price, sale_price, supplier) "
                   "VALUES (:no, :name, :spec, 0, :cost, :price, :sup)");
-        q.bindValue(":no", partNo);
-        q.bindValue(":name", partName);
-        q.bindValue(":spec", spec.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : spec);
-        q.bindValue(":cost", cost > 0 ? cost : QVariant(QMetaType::fromType<double>()));
-        q.bindValue(":price", price > 0 ? price : QVariant(QMetaType::fromType<double>()));
-        q.bindValue(":sup", supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : supplier);
+        q.bindValue(":no", it.partNo);
+        q.bindValue(":name", it.partName);
+        q.bindValue(":spec", it.spec.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : it.spec);
+        q.bindValue(":cost", it.cost > 0 ? it.cost : QVariant(QMetaType::fromType<double>()));
+        q.bindValue(":price", it.price > 0 ? it.price : QVariant(QMetaType::fromType<double>()));
+        q.bindValue(":sup", it.supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : it.supplier);
         if (!DbManager::instance().executeQuery(q)) {
-            DbManager::instance().rollbackTransaction();
-            QMessageBox::warning(this, "入库失败", q.lastError().text());
-            return;
+            QMessageBox::warning(this, "入库失败",
+                QString("备件「%1」建档案失败: %2").arg(it.partNo, q.lastError().text()));
+            return false;
         }
         catalogId = q.lastInsertId().toInt();
     }
 
     // 创建 qty 个实例
-    for (int i = 0; i < qty; i++) {
-        QString sn = generateInstanceSN(partNo, catalogId);
+    for (int i = 0; i < it.qty; i++) {
+        QString sn = generateInstanceSN(it.partNo, catalogId);
         QSqlQuery ins(DbManager::instance().database());
         ins.prepare("INSERT INTO t_part_instance (part_id, instance_sn, status, "
                     "unit_purchase_price, unit_sale_price, remark) "
                     "VALUES (:pid, :sn, '在库', :cost, :price, :rmk)");
         ins.bindValue(":pid", catalogId);
         ins.bindValue(":sn", sn);
-        ins.bindValue(":cost", cost > 0 ? cost : QVariant(QMetaType::fromType<double>()));
-        ins.bindValue(":price", price > 0 ? price : QVariant(QMetaType::fromType<double>()));
-        ins.bindValue(":rmk", supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : supplier);
+        ins.bindValue(":cost", it.cost > 0 ? it.cost : QVariant(QMetaType::fromType<double>()));
+        ins.bindValue(":price", it.price > 0 ? it.price : QVariant(QMetaType::fromType<double>()));
+        ins.bindValue(":rmk", it.supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : it.supplier);
         DbManager::instance().executeQuery(ins);
 
         int instId = ins.lastInsertId().toInt();
@@ -1038,8 +1490,8 @@ void WarehousePage::onPurchaseConfirm()
                     "VALUES (:pid, :iid, 1, :price, :total, '采购入库', :op)");
         log.bindValue(":pid", catalogId);
         log.bindValue(":iid", instId);
-        log.bindValue(":price", cost);
-        log.bindValue(":total", cost);
+        log.bindValue(":price", it.cost);
+        log.bindValue(":total", it.cost);
         log.bindValue(":op", Session::instance().userId());
         DbManager::instance().executeQuery(log);
     }
@@ -1048,10 +1500,10 @@ void WarehousePage::onPurchaseConfirm()
     q.prepare("INSERT INTO t_part_purchase (part_id, supplier, quantity, unit_cost, total_cost, operator_id) "
               "VALUES (:pid, :sup, :qty, :cost, :total, :op)");
     q.bindValue(":pid", catalogId);
-    q.bindValue(":sup", supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : supplier);
-    q.bindValue(":qty", qty);
-    q.bindValue(":cost", cost);
-    q.bindValue(":total", qty * cost);
+    q.bindValue(":sup", it.supplier.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : it.supplier);
+    q.bindValue(":qty", it.qty);
+    q.bindValue(":cost", it.cost);
+    q.bindValue(":total", it.qty * it.cost);
     q.bindValue(":op", Session::instance().userId());
     DbManager::instance().executeQuery(q);
 
@@ -1062,13 +1514,7 @@ void WarehousePage::onPurchaseConfirm()
     q.bindValue(":pid2", catalogId);
     DbManager::instance().executeQuery(q);
 
-    DbManager::instance().commitTransaction();
-    QMessageBox::information(this, "入库成功",
-        QString("备件「%1」x %2 已入库（已创建 %2 个独立实例）").arg(partName).arg(qty));
-    onPurchaseSearch();
-    m_purPartNo->clear(); m_purPartName->clear(); m_purSpec->clear();
-    m_purSupplier->clear(); m_purCost->setValue(0); m_purPrice->setValue(0);
-    m_purQty->setValue(1);
+    return true;
 }
 
 // ============================================================
@@ -1109,20 +1555,36 @@ void WarehousePage::onStockSearch()
 void WarehousePage::onReturnSearch()
 {
     QString keyword = m_retPartSearch->text().trimmed();
-    QString extraCols = QString(
-        "COUNT(CASE WHEN i.status IN ('已领出','已安装') THEN 1 END) AS '可退数量', "
-        "COUNT(CASE WHEN i.status='在库' THEN 1 END) AS '在库数量', "
-        "COALESCE(p.sale_price, 0) AS '销售价'");
+    QSqlQuery q(DbManager::instance().database());
 
-    QString where = "i.status IN ('已领出','已安装')";
+    // 构建 WHERE 条件
+    QStringList conditions;
     if (!keyword.isEmpty()) {
-        where += QString(" AND (p.part_no LIKE '%%1%' OR p.name LIKE '%%1%')")
-                 .arg(keyword.replace("'", "''"));
+        conditions << QString("(p.part_no LIKE '%%1%' OR p.name LIKE '%%1%' OR p.supplier LIKE '%%1%' OR p.spec LIKE '%%1%')")
+                          .arg(keyword.replace("'", "''"));
+    }
+    // 若工单已锁定，仅搜索该工单绑定的已领出实例
+    if (m_retLockedWorkOrderId > 0) {
+        conditions << QString("i.workorder_id = %1").arg(m_retLockedWorkOrderId);
     }
 
-    QString sql = mergedSelectSQL(extraCols, where,
-        "p.sale_price", "ORDER BY p.name LIMIT 200");
-    QSqlQuery q(DbManager::instance().database());
+    QString whereClause = conditions.isEmpty() ? "" : "WHERE " + conditions.join(" AND ");
+
+    // 与备件领取 onPartsSearch 同风格，但仅 JOIN 已领出实例
+    QString sql = QString(
+        "SELECT p.id AS catalog_id, p.part_no AS '备件编号', p.name AS '备件名称', "
+        "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
+        "COALESCE(p.supplier,'') AS '供应商', "
+        "COUNT(i.id) AS '可退数量', "
+        "COALESCE(p.sale_price, (SELECT unit_sale_price FROM t_part_instance "
+        " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
+        "FROM t_parts p "
+        "INNER JOIN t_part_instance i ON i.part_id = p.id AND i.status = '已领出' "
+        "%1 "
+        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.sale_price "
+        "ORDER BY p.name LIMIT 200")
+        .arg(whereClause);
+
     q.prepare(sql);
     DbManager::instance().executeQuery(q);
     m_retModel->setQuery(std::move(q));
@@ -1138,7 +1600,7 @@ void WarehousePage::onReturnConfirm()
     int qty = m_retQty->value();
     QString orderNo = m_retOrderNo->text().trimmed();
 
-    // 获取可退库的实例（优先已领出、其次已安装）
+    // 获取可退库的实例（仅已领出）
     QList<int> instanceIds;
     QSqlQuery q(DbManager::instance().database());
 
@@ -1146,14 +1608,14 @@ void WarehousePage::onReturnConfirm()
     if (!orderNo.isEmpty()) {
         q.prepare("SELECT i.id FROM t_part_instance i "
                   "JOIN t_workorder w ON w.id = i.workorder_id "
-                  "WHERE i.part_id = :pid AND i.status IN ('已领出','已安装') "
+                  "WHERE i.part_id = :pid AND i.status = '已领出' "
                   "AND w.order_no LIKE :ono "
-                  "ORDER BY i.status = '已领出' DESC LIMIT :lim");
+                  "LIMIT :lim");
         q.bindValue(":ono", "%" + orderNo + "%");
     } else {
         q.prepare("SELECT id FROM t_part_instance "
-                  "WHERE part_id = :pid AND status IN ('已领出','已安装') "
-                  "ORDER BY status = '已领出' DESC LIMIT :lim");
+                  "WHERE part_id = :pid AND status = '已领出' "
+                  "LIMIT :lim");
     }
     q.bindValue(":pid", m_retPartId);
     q.bindValue(":lim", qty);
@@ -1206,6 +1668,31 @@ void WarehousePage::onReturnConfirm()
     DbManager::instance().executeQuery(q);
 
     DbManager::instance().commitTransaction();
+
+    // 同步更新维修历史：备件摘要
+    if (!orderNo.isEmpty()) {
+        QSqlQuery woq(DbManager::instance().database());
+        woq.prepare("SELECT id FROM t_workorder WHERE order_no=:no");
+        woq.bindValue(":no", orderNo);
+        DbManager::instance().executeQuery(woq);
+        if (woq.next()) {
+            int woid = woq.value(0).toInt();
+            QStringList psList;
+            QSqlQuery psq(DbManager::instance().database());
+            psq.prepare("SELECT part_name, COUNT(*) FROM t_workorder_item "
+                        "WHERE workorder_id=:oid AND item_type='材料' GROUP BY part_name");
+            psq.bindValue(":oid", woid);
+            DbManager::instance().executeQuery(psq);
+            while (psq.next())
+                psList << QString("%1x%2").arg(psq.value(0).toString()).arg(psq.value(1).toInt());
+            QSqlQuery mu(DbManager::instance().database());
+            mu.prepare("UPDATE t_maintenance_history SET parts_summary=:ps WHERE workorder_id=:oid");
+            mu.bindValue(":ps", psList.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : psList.join(", "));
+            mu.bindValue(":oid", woid);
+            DbManager::instance().executeQuery(mu);
+        }
+    }
+
     QMessageBox::information(this, "退库成功",
         QString("备件「%1」x %2 已退回库房").arg(partName).arg(qty));
     onReturnSearch();
@@ -1218,20 +1705,27 @@ void WarehousePage::onReturnConfirm()
 void WarehousePage::onPurchaseReturnSearch()
 {
     QString keyword = m_purRetPartSearch->text().trimmed();
-    QString extraCols = QString(
-        "COUNT(CASE WHEN i.status='在库' THEN 1 END) AS '在库数量', "
-        "COALESCE(p.purchase_price, 0) AS '进货价'");
-
-    // 只搜索在库状态的实例
-    QString where = "i.status = '在库'";
-    if (!keyword.isEmpty()) {
-        where += QString(" AND (p.part_no LIKE '%%1%' OR p.name LIKE '%%1%')")
-                 .arg(keyword.replace("'", "''"));
-    }
-
-    QString sql = mergedSelectSQL(extraCols, where,
-        "p.purchase_price", "ORDER BY p.name LIMIT 200");
     QSqlQuery q(DbManager::instance().database());
+
+    // 与备件领取 onPartsSearch 同风格，但仅 JOIN 在库实例
+    QString sql = QString(
+        "SELECT p.id AS catalog_id, p.part_no AS '备件编号', p.name AS '备件名称', "
+        "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
+        "COALESCE(p.supplier,'') AS '供应商', "
+        "COUNT(i.id) AS '在库数量', "
+        "COALESCE(p.purchase_price, 0) AS '进货价', "
+        "COALESCE(p.sale_price, (SELECT unit_sale_price FROM t_part_instance "
+        " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
+        "FROM t_parts p "
+        "INNER JOIN t_part_instance i ON i.part_id = p.id AND i.status = '在库' "
+        "%1 "
+        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.purchase_price, p.sale_price "
+        "ORDER BY p.name LIMIT 200")
+        .arg(!keyword.isEmpty()
+             ? QString("WHERE p.part_no LIKE '%%1%' OR p.name LIKE '%%1%' OR p.supplier LIKE '%%1%' OR p.spec LIKE '%%1%'")
+               .arg(keyword.replace("'", "''"))
+             : "");
+
     q.prepare(sql);
     DbManager::instance().executeQuery(q);
     m_purRetModel->setQuery(std::move(q));
@@ -1297,6 +1791,41 @@ void WarehousePage::onPurchaseReturnConfirm()
     QMessageBox::information(this, "退货成功",
         QString("备件「%1」x %2 已退货").arg(partName).arg(qty));
     onPurchaseReturnSearch();
+}
+
+// ============================================================
+// Tab 切换自动刷新 — 每次切换到某个Tab时自动刷新该页数据
+// ============================================================
+void WarehousePage::onTabChanged(int index)
+{
+    switch (index) {
+    case 0: // 备件领取
+        onPartsSearch();
+        break;
+    case 1: // 材料结算/提单 — 若已加载工单则刷新明细，否则清空
+        if (m_billingOrderId > 0 && !m_billingOrderNo->text().trimmed().isEmpty()) {
+            onBillingSearchOrder();
+        } else {
+            m_billingModel->setQuery(QSqlQuery());
+            m_lblBillingInfo->setText("请搜索工单");
+            m_lblBillingTotal->setText("材料费合计: ¥0.00");
+            m_btnConfirmBill->setEnabled(false);
+            m_btnCancelBill->setEnabled(false);
+        }
+        break;
+    case 2: // 采购入库（按批）— 刷新本批清单
+        refreshPurchaseList();
+        break;
+    case 3: // 库存查询
+        onStockSearch();
+        break;
+    case 4: // 备件退库
+        onReturnSearch();
+        break;
+    case 5: // 采购退货
+        onPurchaseReturnSearch();
+        break;
+    }
 }
 
 void WarehousePage::loadTechCombos() {}

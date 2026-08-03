@@ -17,17 +17,17 @@ public:
     explicit ServiceReminderPage(QWidget *parent = nullptr);
     ~ServiceReminderPage();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private slots:
     void onScan();
-    void onExportReminder();
 
 private:
     void setupUI();
 
     QSpinBox *m_spinDays;
     QSpinBox *m_spinMileage;
-    QPushButton *m_btnScan;
-    QPushButton *m_btnExport;
     QTableView *m_tableView;
     QSqlQueryModel *m_model;
     QLabel *m_resultCount;

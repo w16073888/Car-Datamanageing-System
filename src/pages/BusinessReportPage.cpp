@@ -1,5 +1,6 @@
 #include "BusinessReportPage.h"
 #include "database/DbManager.h"
+#include "dialogs/WorkOrderDetailDialog.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -40,6 +41,7 @@ void BusinessReportPage::setupUI()
     m_tableView->setModel(m_model);
 
     connect(m_dateRange, &DateRangeWidget::dateRangeChanged, this, &BusinessReportPage::onDateRangeChanged);
+    connect(m_tableView, &QTableView::doubleClicked, this, &BusinessReportPage::onRowDoubleClicked);
 
     refreshData();
 }
@@ -77,4 +79,16 @@ void BusinessReportPage::onDateRangeChanged(const QDate &start, const QDate &end
 void BusinessReportPage::onRefresh()
 {
     refreshData();
+}
+
+void BusinessReportPage::onRowDoubleClicked(const QModelIndex &index)
+{
+    if (!index.isValid()) return;
+
+    // 第 0 列为工单号，双击后打开工单详情弹窗（格式与前台业务-工单查询一致，含打印/PDF）
+    QString orderNo = m_model->data(m_model->index(index.row(), 0)).toString().trimmed();
+    if (orderNo.isEmpty()) return;
+
+    WorkOrderDetailDialog dlg(orderNo, this);
+    dlg.exec();
 }

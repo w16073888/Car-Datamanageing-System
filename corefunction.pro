@@ -2,7 +2,7 @@ QT += core gui sql printsupport charts
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
-CONFIG += release c++17
+CONFIG += c++17
 TARGET = corefunction
 TEMPLATE = app
 
@@ -15,6 +15,7 @@ SOURCES += \
     src/database/DbManager.cpp \
     src/database/Session.cpp \
     src/dialogs/LoginDialog.cpp \
+    src/dialogs/WorkOrderDetailDialog.cpp \
     src/pages/EmployeePage.cpp \
     src/pages/DataManagerPage.cpp \
     src/pages/FrontDeskPage.cpp \
@@ -43,6 +44,7 @@ HEADERS += \
     src/database/DbManager.h \
     src/database/Session.h \
     src/dialogs/LoginDialog.h \
+    src/dialogs/WorkOrderDetailDialog.h \
     src/pages/EmployeePage.h \
     src/pages/DataManagerPage.h \
     src/pages/FrontDeskPage.h \
