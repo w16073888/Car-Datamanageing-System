@@ -5458,6 +5458,13 @@ debug/WarehousePage.o: src/pages/WarehousePage.cpp src/pages/WarehousePage.h \
 		../../../QT5.15.2/qt515/include/QtCore/qjsonobject.h \
 		../../../QT5.15.2/qt515/include/QtCore/QJsonValue \
 		src/remote/SqlUtil.h \
+		../../../QT5.15.2/qt515/include/QtWidgets/QAbstractSpinBox \
+		../../../QT5.15.2/qt515/include/QtGui/QKeyEvent \
+		../../../QT5.15.2/qt515/include/QtGui/QMouseEvent \
+		../../../QT5.15.2/qt515/include/QtGui/QShowEvent \
+		../../../QT5.15.2/qt515/include/QtCore/QTimer \
+		../../../QT5.15.2/qt515/include/QtCore/qtimer.h \
+		../../../QT5.15.2/qt515/include/QtCore/qbasictimer.h \
 		../../../QT5.15.2/qt515/include/QtWidgets/QVBoxLayout \
 		../../../QT5.15.2/qt515/include/QtWidgets/qboxlayout.h \
 		../../../QT5.15.2/qt515/include/QtWidgets/qlayout.h \

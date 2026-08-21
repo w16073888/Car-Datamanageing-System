@@ -5,6 +5,11 @@
 #include "remote/RemoteDb.h"
 #include "remote/SqlUtil.h"
 
+#include <QAbstractSpinBox>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QShowEvent>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -570,6 +575,7 @@ void WarehousePage::setupUI()
 
     // 工单多结果下拉：备件领取 / 结算提单 各自挂靠一个输入框
     m_issueWoCompleter = new SearchCompleter(this);
+    m_issueOrderNo->installEventFilter(this);   // 先装本页过滤，再让 completer 后装（下拉打开时 completer 优先处理回车/方向键）
     m_issueWoCompleter->setEdit(m_issueOrderNo);
     connect(m_issueWoCompleter, &SearchCompleter::selected, this, [this](int idx) {
         if (idx < 0 || idx >= m_woRows.size()) return;
@@ -582,6 +588,7 @@ void WarehousePage::setupUI()
     connect(m_issueOrderNo, &QLineEdit::textChanged, this, &WarehousePage::onIssueOrderSearchTextChanged);
 
     m_billingWoCompleter = new SearchCompleter(this);
+    m_billingOrderNo->installEventFilter(this);  // 同 m_issueOrderNo：completer 后装、优先
     m_billingWoCompleter->setEdit(m_billingOrderNo);
     connect(m_billingWoCompleter, &SearchCompleter::selected, this, [this](int idx) {
         if (idx < 0 || idx >= m_woRows.size()) return;
@@ -633,6 +640,7 @@ void WarehousePage::setupUI()
 
     // 采购入库备件多结果下拉：选中即回填 编号/名称/规格
     m_purCompleter = new SearchCompleter(this);
+    m_purPartSearch->installEventFilter(this);   // 同 m_issueOrderNo：completer 后装、优先
     m_purCompleter->setEdit(m_purPartSearch);
     connect(m_purCompleter, &SearchCompleter::selected, this, [this](int idx) {
         if (idx < 0 || idx >= m_purRows.size()) return;
@@ -660,6 +668,7 @@ void WarehousePage::setupUI()
     // 备件退库 — 工单搜索 + 状态栏更新 + 锁定工单ID
     // 工单/车牌输入完成：回车、Tab 或失焦自动锁定工单
     m_retWoCompleter = new SearchCompleter(this);
+    m_retOrderNo->installEventFilter(this);      // 同 m_issueOrderNo：completer 后装、优先
     m_retWoCompleter->setEdit(m_retOrderNo);
     connect(m_retWoCompleter, &SearchCompleter::selected, this, [this](int idx) {
         if (idx < 0 || idx >= m_woRows.size()) return;
@@ -704,6 +713,56 @@ void WarehousePage::setupUI()
         m_purRetQty->setMaximum(inStock > 0 ? inStock : 1);
     });
     connect(m_btnPurRetConfirm, &QPushButton::clicked, this, &WarehousePage::onPurchaseReturnConfirm);
+
+    // ============================================================
+    // 键盘导航事件过滤
+    //   - Tab 栏：默认先选择 tab（左右切换，回车/鼠标进入该 tab）
+    //   - 每个 tab：输入焦点按「从左到右、再从上到下」跳转（回车/Tab 前进）
+    //   - 搜索框 + 结果列表（需求3）：搜索框回车有结果跳列表第一行（无结果不跳）；
+    //     列表回车确认选中备件并跳下一输入区
+    // ============================================================
+    m_tabWidget->tabBar()->setFocusPolicy(Qt::StrongFocus);
+    m_tabWidget->tabBar()->installEventFilter(this);
+
+    // Tab 0 备件领取（m_issueOrderNo 已在上方 completer 前安装）
+    m_issueRecipient->installEventFilter(this);
+    m_issuePartSearch->installEventFilter(this);
+    m_issueTable->installEventFilter(this);
+    installNavFilter(m_spinIssueQty);
+    m_btnIssue->installEventFilter(this);
+
+    // Tab 1 材料结算（m_billingOrderNo 已在上方 completer 前安装）
+    m_billingTable->installEventFilter(this);
+    m_btnConfirmBill->installEventFilter(this);
+    m_btnCancelBill->installEventFilter(this);
+
+    // Tab 2 采购入库（m_purPartSearch 已在上方 completer 前安装）
+    m_purPartNo->installEventFilter(this);
+    m_purPartName->installEventFilter(this);
+    m_purSpec->installEventFilter(this);
+    m_purSupplier->installEventFilter(this);
+    m_purApplicableModel->installEventFilter(this);
+    installNavFilter(m_purCost);
+    installNavFilter(m_purPrice);
+    installNavFilter(m_purQty);
+    m_btnPurAddItem->installEventFilter(this);
+    m_btnPurConfirm->installEventFilter(this);
+
+    // Tab 3 库存查询
+    m_stockKeyword->installEventFilter(this);
+    m_stockTable->installEventFilter(this);
+
+    // Tab 4 备件退库（m_retOrderNo 已在上方 completer 前安装）
+    m_retPartSearch->installEventFilter(this);
+    m_retTable->installEventFilter(this);
+    installNavFilter(m_retQty);
+    m_btnRetConfirm->installEventFilter(this);
+
+    // Tab 5 采购退货
+    m_purRetPartSearch->installEventFilter(this);
+    m_purRetTable->installEventFilter(this);
+    installNavFilter(m_purRetQty);
+    m_btnPurRetConfirm->installEventFilter(this);
 }
 
 // ============================================================
@@ -2066,6 +2125,236 @@ void WarehousePage::onTabChanged(int index)
         onPurchaseReturnSearch();
         break;
     }
+}
+
+// ============================================================
+// 键盘导航实现
+// ============================================================
+
+void WarehousePage::installNavFilter(QWidget *w)
+{
+    w->installEventFilter(this);
+    // QSpinBox 内部有一个行编辑：按键实际发给它，需一并挂过滤
+    if (auto *sb = qobject_cast<QAbstractSpinBox*>(w)) {
+        if (QLineEdit *le = sb->findChild<QLineEdit*>())
+            le->installEventFilter(this);
+    }
+}
+
+QList<QWidget*> WarehousePage::chainForTab(int index) const
+{
+    switch (index) {
+    case 0:  // 备件领取
+        return { m_issueOrderNo, m_issueRecipient, m_issuePartSearch,
+                 m_issueTable, m_spinIssueQty, m_btnIssue };
+    case 1:  // 材料结算
+        return { m_billingOrderNo, m_billingTable, m_btnConfirmBill, m_btnCancelBill };
+    case 2:  // 采购入库（输入区：搜索→填写→加入清单→确认入库）
+        return { m_purPartSearch, m_purPartNo, m_purPartName, m_purSpec,
+                 m_purApplicableModel, m_purSupplier, m_purCost, m_purPrice, m_purQty,
+                 m_btnPurAddItem, m_btnPurConfirm };
+    case 3:  // 库存查询
+        return { m_stockKeyword, m_stockTable };
+    case 4:  // 备件退库
+        return { m_retOrderNo, m_retPartSearch, m_retTable, m_retQty, m_btnRetConfirm };
+    case 5:  // 采购退货
+        return { m_purRetPartSearch, m_purRetTable, m_purRetQty, m_btnPurRetConfirm };
+    default:
+        return {};
+    }
+}
+
+QWidget *WarehousePage::navWidgetOf(QObject *obj) const
+{
+    auto *w = qobject_cast<QWidget*>(obj);
+    if (!w)
+        return nullptr;
+    // QSpinBox 内部行编辑收到按键 → 归一到自旋框本体（输入链中存的是自旋框）
+    if (auto *sb = qobject_cast<QAbstractSpinBox*>(w->parentWidget()))
+        return sb;
+    return w;
+}
+
+bool WarehousePage::eventFilter(QObject *obj, QEvent *event)
+{
+    // ==================== Tab 栏：左右切换 / 回车进入 / 鼠标点击进入 ====================
+    if (obj == m_tabWidget->tabBar()) {
+        if (event->type() == QEvent::KeyPress) {
+            QKeyEvent *ke = static_cast<QKeyEvent*>(event);
+            const int key = ke->key();
+            if (key == Qt::Key_Return || key == Qt::Key_Enter || key == Qt::Key_Tab) {
+                enterTab();        // 回车/Tab 进入当前 tab 的第一个输入区
+                return true;
+            }
+            return false;          // 左右方向键 → 原生切换 tab（QTabBar 自带）
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            // 鼠标点击某个 tab → 切换后自动进入该 tab 内容
+            QMouseEvent *me = static_cast<QMouseEvent*>(event);
+            if (m_tabWidget->tabBar()->tabAt(me->pos()) >= 0)
+                QTimer::singleShot(0, this, [this]() { enterTab(); });
+        }
+        return false;
+    }
+
+    if (event->type() == QEvent::KeyPress) {
+        QKeyEvent *ke = static_cast<QKeyEvent*>(event);
+        const int key = ke->key();
+        if (key == Qt::Key_Return || key == Qt::Key_Enter)
+            return handleEnter(obj);
+        if (key == Qt::Key_Tab) {
+            handleTab(obj);
+            return true;
+        }
+        // 方向键/其它键：不拦截，保留原生行为（光标移动 / 数值调整 / 表格行移动）
+        return false;
+    }
+    return QWidget::eventFilter(obj, event);
+}
+
+bool WarehousePage::handleEnter(QObject *obj)
+{
+    QWidget *w = navWidgetOf(obj);
+    if (!w)
+        return false;
+
+    // 搜索框 + 结果列表配对（需求3）：有结果跳列表第一行，无结果不跳
+    if (w == m_issuePartSearch || w == m_retPartSearch
+        || w == m_purRetPartSearch || w == m_stockKeyword) {
+        return searchToFirstRow(w);
+    }
+    // 结果列表：回车 = 确认选中备件 → 跳下一输入区
+    if (w == m_issueTable || w == m_retTable || w == m_purRetTable) {
+        return confirmRowAndNext(w);
+    }
+    // 只读展示表格（结算明细 / 本批清单 / 库存）：回车 → 下一输入区
+    if (w == m_billingTable || w == m_purTable || w == m_stockTable) {
+        navNext(w);
+        return true;
+    }
+    // 按钮：回车 = 点击（确认出库/加入清单/确认入库/确认退库/确认退货/提单等）
+    if (auto *btn = qobject_cast<QPushButton*>(w)) {
+        btn->click();
+        return true;
+    }
+    // 普通输入框（QLineEdit / QSpinBox）：回车 → 下一输入区
+    navNext(w);
+    return true;
+}
+
+bool WarehousePage::handleTab(QObject *obj)
+{
+    QWidget *w = navWidgetOf(obj);
+    if (!w)
+        return false;
+    // 结果列表：Tab 与回车一致（确认选中备件再前进，避免未选中就离开导致选择丢失）
+    if (w == m_issueTable || w == m_retTable || w == m_purRetTable) {
+        return confirmRowAndNext(w);
+    }
+    navNext(w);
+    return true;
+}
+
+bool WarehousePage::searchToFirstRow(QWidget *searchField)
+{
+    // 与 returnPressed 语义一致，先执行一次搜索（live 搜索一般已是最新）
+    if (searchField == m_issuePartSearch)       onPartsSearch();
+    else if (searchField == m_retPartSearch)    onReturnSearch();
+    else if (searchField == m_purRetPartSearch) onPurchaseReturnSearch();
+    else if (searchField == m_stockKeyword)     onStockSearch();
+
+    QTableView *table = nullptr;
+    if (searchField == m_issuePartSearch)       table = m_issueTable;
+    else if (searchField == m_retPartSearch)    table = m_retTable;
+    else if (searchField == m_purRetPartSearch) table = m_purRetTable;
+    else if (searchField == m_stockKeyword)     table = m_stockTable;
+
+    if (table && table->model() && table->model()->rowCount() > 0)
+        focusListFirstRow(table);    // 有结果：跳列表第一行
+    // 无结果：焦点留在搜索框，不跳转
+    return true;
+}
+
+bool WarehousePage::confirmRowAndNext(QWidget *tableWidget)
+{
+    auto *t = qobject_cast<QTableView*>(tableWidget);
+    if (!t)
+        return true;
+    if (!t->model() || t->model()->rowCount() <= 0)
+        return true;                 // 空列表：回车无效，停留在列表
+    QModelIndex cur = t->currentIndex();
+    if (!cur.isValid()) {
+        focusListFirstRow(t);        // 尚未选中行 → 先跳到第一行让用户用上下键选择
+        return true;
+    }
+    // 复用 clicked 连接的选中逻辑（设置 partId / 数量上限 / 信息栏）
+    emit t->clicked(cur);
+    // 确认选中后跳下一输入区（数量）
+    navNext(t);
+    return true;
+}
+
+void WarehousePage::focusListFirstRow(QTableView *t)
+{
+    t->setFocus(Qt::OtherFocusReason);
+    if (!t->model() || t->model()->rowCount() <= 0)
+        return;
+    QModelIndex first = t->model()->index(0, 0);
+    t->setCurrentIndex(first);
+    t->selectRow(0);
+    t->scrollTo(first);
+}
+
+void WarehousePage::navNext(QWidget *w)
+{
+    const QList<QWidget*> chain = chainForTab(m_tabWidget->currentIndex());
+    if (chain.isEmpty())
+        return;
+    int idx = chain.indexOf(w);
+    if (idx < 0)
+        idx = chain.size();          // 不在链中（理论上不会）→ 从第一个开始
+    for (int i = 1; i <= chain.size(); ++i) {
+        QWidget *n = chain.at((idx + i) % chain.size());
+        if (n->isVisible()) {        // 跳过隐藏项（如未锁定工单时隐藏的提单按钮）
+            focusWidget(n);
+            return;
+        }
+    }
+}
+
+void WarehousePage::focusWidget(QWidget *w)
+{
+    if (!w)
+        return;
+    if (auto *e = qobject_cast<QLineEdit*>(w))
+        e->selectAll();
+    w->setFocus(Qt::OtherFocusReason);
+}
+
+void WarehousePage::enterTab()
+{
+    const QList<QWidget*> chain = chainForTab(m_tabWidget->currentIndex());
+    for (QWidget *w : chain)
+        if (w->isVisible()) {
+            focusWidget(w);
+            return;
+        }
+}
+
+void WarehousePage::focusTabBar()
+{
+    m_tabWidget->tabBar()->setFocus(Qt::OtherFocusReason);
+}
+
+void WarehousePage::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    // 打开库房工作台：默认落在「备件领取」tab，焦点先放 tab 栏
+    // （此时左右方向键可切换 tab，回车或鼠标点击进入该 tab 内容）
+    QTimer::singleShot(0, this, [this]() {
+        m_tabWidget->setCurrentIndex(0);
+        focusTabBar();
+    });
 }
 
 void WarehousePage::loadTechCombos() {}

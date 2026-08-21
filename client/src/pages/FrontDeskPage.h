@@ -153,6 +153,16 @@ private:
     void addRepairRow(const QString &type);
     void rebuildRepairLayout();
 
+    // ==================== 键盘导航（回车/Tab/左右方向键） ====================
+    QList<QWidget*> navFullChain() const;    // 回车/Tab：当前状态完整输入链
+    QList<QWidget*> navTextChain() const;    // 方向键：仅文本输入框（QLineEdit）
+    ItemRow *repairRowOf(QObject *obj);      // 定位报修行（content/fee 所属行）
+    void navNext(QObject *obj);              // 前进到下一输入区域
+    void navPrev(QObject *obj);              // 后退到上一文本输入框
+    void navNextRepairContent(ItemRow *row); // 报修内容行：→ 本行费用 / 下一板块
+    void navNextRepairFee(ItemRow *row);     // 费用：→ 下一行内容 / 备件搜索
+    void focusInput(QWidget *w);             // 聚焦 + 全选 + 滚动到可见
+
     // ==================== 预计部件选择区 ====================
     struct SelectedPart {
         QString name;      // 部件名称

@@ -16,6 +16,9 @@
 #include "remote/RemoteModel.h"
 #include "widgets/SearchCompleter.h"
 
+class QEvent;
+class QShowEvent;
+
 // 采购入库 - 批次清单中的单项
 struct PurchaseItem {
     QString partNo;
@@ -69,6 +72,10 @@ private slots:
     // Tab 切换自动刷新
     void onTabChanged(int index);
 
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+
 private:
     void setupUI();
     void loadTechCombos();
@@ -106,6 +113,20 @@ private:
     bool updateInstanceStatus(const QList<int> &instanceIds, const QString &newStatus,
                               int vehicleId = -1, int workorderId = -1,
                               const QString &recipient = QString());
+
+    // ==================== 键盘导航（Tab 选择 + 输入链跳转） ====================
+    void installNavFilter(QWidget *w);              // 安装过滤：自旋框一并过滤其内部行编辑
+    QList<QWidget*> chainForTab(int index) const;   // 当前 tab 输入链（从左到右、再从上到下）
+    QWidget *navWidgetOf(QObject *obj) const;       // 自旋框内部行编辑 → 归一为自旋框本体
+    bool handleEnter(QObject *obj);                 // 回车：搜索框→列表 / 列表→下一输入区 / 其它→下一输入区
+    bool handleTab(QObject *obj);                   // Tab：结果列表→确认+前进，其它→下一输入区
+    bool searchToFirstRow(QWidget *searchField);    // 搜索框回车：有结果跳列表第一行，无结果不跳
+    bool confirmRowAndNext(QWidget *table);         // 列表回车：确认选中备件并跳下一输入区
+    void focusListFirstRow(QTableView *t);          // 聚焦列表第一行
+    void navNext(QWidget *w);                       // 跳到链中下一可见输入区
+    void focusWidget(QWidget *w);                   // 聚焦 + 全选
+    void enterTab();                                // 进入当前 tab 第一个输入区
+    void focusTabBar();                             // 焦点放 tab 栏（进入 tab 选择态）
 
     QTabWidget *m_tabWidget;
 

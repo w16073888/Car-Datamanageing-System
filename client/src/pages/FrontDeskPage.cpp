@@ -55,22 +55,185 @@ FrontDeskPage::~FrontDeskPage() {}
 void FrontDeskPage::refreshData() { resetForm(); }
 
 // ============================================================
-// eventFilter — 回车键跳转到下一个输入区域
+// eventFilter — 键盘导航：回车/Tab 前进，左右方向键在文本输入框间跳跃
 // ============================================================
 bool FrontDeskPage::eventFilter(QObject *obj, QEvent *event)
 {
     if (event->type() == QEvent::KeyPress) {
         QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
-        if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
+        const int key = keyEvent->key();
+
+        // 回车/小键盘回车：前进到下一个输入区域
+        if (key == Qt::Key_Return || key == Qt::Key_Enter) {
             // 不拦截 QComboBox 的回车（用于选择下拉项）
             if (qobject_cast<QComboBox*>(obj))
                 return false;
-            // 调用 FrontDeskPage 自身的 focusNextPrevChild（protected 方法，类内可访问）
-            focusNextPrevChild(true);
+            navNext(obj);
             return true;
+        }
+
+        // Tab：前进到下一个输入区域（含下拉框/日期控件）
+        if (key == Qt::Key_Tab) {
+            navNext(obj);
+            return true;
+        }
+
+        // 左右方向键：光标在文本框边界时跳转到相邻文本输入框，
+        // 否则保留文本框内移动光标的原生行为（非 QLineEdit 一律原生）。
+        if (key == Qt::Key_Right) {
+            auto *e = qobject_cast<QLineEdit*>(obj);
+            if (e && e->selectedText().isEmpty() && e->cursorPosition() >= e->text().length()) {
+                navNext(obj);
+                return true;
+            }
+            return false;
+        }
+        if (key == Qt::Key_Left) {
+            auto *e = qobject_cast<QLineEdit*>(obj);
+            if (e && e->selectedText().isEmpty() && e->cursorPosition() <= 0) {
+                navPrev(obj);
+                return true;
+            }
+            return false;
         }
     }
     return QWidget::eventFilter(obj, event);
+}
+
+// ============================================================
+// 键盘导航实现
+// ============================================================
+QList<QWidget*> FrontDeskPage::navFullChain() const
+{
+    QList<QWidget*> chain;
+    if (m_state == STATE_SEARCH) {
+        chain = { m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel };
+    } else if (m_state == STATE_NEW_CAR) {
+        chain = { m_nPlate, m_nVin, m_nEngine, m_nModel, m_nColor, m_nFuel, m_nTrans,
+                  m_nOwner, m_nPhone, m_nAddress, m_nPurchase };
+    } else if (m_state == STATE_DISPATCH) {
+        // 报修行按类型顺序（机电 → 钣金 → 喷漆），内容+费用各占一个输入位；
+        // 自动新增的空行按类型插在原行之后，因此"费用→下一区域"自然落到新行。
+        QStringList typeOrder = { "机电", "钣金", "喷漆" };
+        QList<const ItemRow*> ordered;
+        for (const QString &t : typeOrder)
+            for (const auto &row : m_allRows)
+                if (row.type == t)
+                    ordered.append(&row);
+        for (const ItemRow *r : ordered) {
+            chain << r->content << r->fee;
+        }
+        chain << m_partSearch << m_partPrice;
+    }
+    return chain;
+}
+
+QList<QWidget*> FrontDeskPage::navTextChain() const
+{
+    QList<QWidget*> chain;
+    if (m_state == STATE_SEARCH) {
+        chain = { m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel };
+    } else if (m_state == STATE_NEW_CAR) {
+        chain = { m_nPlate, m_nVin, m_nEngine, m_nOwner, m_nPhone, m_nAddress };
+    } else if (m_state == STATE_DISPATCH) {
+        QStringList typeOrder = { "机电", "钣金", "喷漆" };
+        QList<const ItemRow*> ordered;
+        for (const QString &t : typeOrder)
+            for (const auto &row : m_allRows)
+                if (row.type == t)
+                    ordered.append(&row);
+        for (const ItemRow *r : ordered)
+            chain << r->content;
+        chain << m_partSearch << m_partPrice;
+    }
+    return chain;
+}
+
+FrontDeskPage::ItemRow *FrontDeskPage::repairRowOf(QObject *obj)
+{
+    for (auto &row : m_allRows)
+        if (row.content == obj || row.fee == obj)
+            return &row;
+    return nullptr;
+}
+
+void FrontDeskPage::focusInput(QWidget *w)
+{
+    if (!w)
+        return;
+    w->setFocus(Qt::OtherFocusReason);
+    if (auto *e = qobject_cast<QLineEdit*>(w))
+        e->selectAll();
+    // 确保目标在滚动区内可见（报修内容滚动区 / 页面滚动区）
+    QWidget *p = w->parentWidget();
+    while (p) {
+        if (auto *sa = qobject_cast<QScrollArea*>(p)) {
+            sa->ensureWidgetVisible(w);
+            break;
+        }
+        p = p->parentWidget();
+    }
+}
+
+void FrontDeskPage::navNext(QObject *obj)
+{
+    // 派工状态：报修内容/费用 走特殊跳转逻辑
+    if (m_state == STATE_DISPATCH) {
+        if (ItemRow *row = repairRowOf(obj)) {
+            if (obj == row->content) { navNextRepairContent(row); return; }
+            if (obj == row->fee)     { navNextRepairFee(row);   return; }
+        }
+    }
+
+    QWidget *cur = qobject_cast<QWidget*>(obj);
+    if (!cur) { focusNextPrevChild(true); return; }
+    QList<QWidget*> chain = navFullChain();
+    const int idx = chain.indexOf(cur);
+    if (idx >= 0) {
+        focusInput(chain[(idx + 1) % chain.size()]);
+        return;
+    }
+    focusNextPrevChild(true);   // 链外字段：保持原 tab 顺序
+}
+
+void FrontDeskPage::navPrev(QObject *obj)
+{
+    QWidget *cur = qobject_cast<QWidget*>(obj);
+    if (!cur) { focusNextPrevChild(false); return; }
+    QList<QWidget*> chain = navTextChain();
+    const int idx = chain.indexOf(cur);
+    if (idx >= 0) {
+        focusInput(chain[(idx - 1 + chain.size()) % chain.size()]);
+        return;
+    }
+    focusNextPrevChild(false);
+}
+
+void FrontDeskPage::navNextRepairContent(ItemRow *row)
+{
+    // 该行有内容（内容或费用已填）→ 先落本行费用；focus 移走时 editingFinished
+    // 会自动新增同类型空行（若本行是同类型最后一行），费用回车时即可跳到新行。
+    if (!row->content->text().trimmed().isEmpty() || row->fee->value() > 0) {
+        focusInput(row->fee);
+        return;
+    }
+    // 空行：跳到下一个内容输入框（下一板块），最后一行则跳到备件搜索区
+    QList<QWidget*> chain = navFullChain();
+    const int idx = chain.indexOf(row->content);
+    if (idx >= 0) {
+        for (int i = idx + 1; i < chain.size(); i++)
+            if (qobject_cast<QLineEdit*>(chain[i])) { focusInput(chain[i]); return; }
+    }
+    focusInput(m_partSearch);
+}
+
+void FrontDeskPage::navNextRepairFee(ItemRow *row)
+{
+    // 下一行内容（若自动新增了空行，按类型顺序自然排在下一位）；最后一行则备件搜索区
+    QList<QWidget*> chain = navFullChain();
+    const int idx = chain.indexOf(row->fee);
+    if (idx >= 0 && idx + 1 < chain.size()) { focusInput(chain[idx + 1]); return; }
+    focusInput(m_partSearch);
 }
 
 // ============================================================
@@ -249,8 +412,9 @@ void FrontDeskPage::setupUI()
 
     // 安装回车导航事件过滤器
     for (auto *w : {static_cast<QWidget*>(m_nPlate),static_cast<QWidget*>(m_nVin),static_cast<QWidget*>(m_nEngine),
-                    static_cast<QWidget*>(m_nModel),static_cast<QWidget*>(m_nOwner),static_cast<QWidget*>(m_nPhone),
-                    static_cast<QWidget*>(m_nAddress)})
+                    static_cast<QWidget*>(m_nModel),static_cast<QWidget*>(m_nColor),static_cast<QWidget*>(m_nFuel),
+                    static_cast<QWidget*>(m_nTrans),static_cast<QWidget*>(m_nOwner),static_cast<QWidget*>(m_nPhone),
+                    static_cast<QWidget*>(m_nAddress),static_cast<QWidget*>(m_nPurchase)})
         w->installEventFilter(this);
 
     ng->addWidget(L("车牌*:"),0,0); ng->addWidget(m_nPlate,0,1);
@@ -411,6 +575,11 @@ void FrontDeskPage::setupUI()
         priceRow->addWidget(m_partPrice);
         priceRow->addStretch();
         rightSide->addLayout(priceRow);
+
+        // 备件搜索/定价纳入键盘导航（SearchCompleter 的过滤器后装、先执行，
+        // 下拉展开时仍由它接管方向键/回车，这里只管收起后的跳转）
+        m_partSearch->installEventFilter(this);
+        m_partPrice->installEventFilter(this);
 
         // 已选备件列表（占据更多空间）
         m_partTable = new QTableWidget(0, 3);
@@ -1170,6 +1339,26 @@ void FrontDeskPage::setState(FrontDeskState s)
         addRepairRow("钣金");
         addRepairRow("喷漆");
     }
+
+    // 进入状态后，焦点自动落到该状态的默认输入框
+    // （延后一个事件循环，等控件可见/布局稳定后再聚焦）
+    QTimer::singleShot(0, this, [this, s]() {
+        if (m_state != s)
+            return;
+        switch (s) {
+        case STATE_SEARCH:
+            m_sPlate->setFocus(Qt::OtherFocusReason);
+            m_sPlate->selectAll();
+            break;
+        case STATE_NEW_CAR:
+            m_nPlate->setFocus(Qt::OtherFocusReason);
+            break;
+        case STATE_DISPATCH:
+            if (!m_allRows.isEmpty())
+                focusInput(m_allRows.first().content);   // 报修内容第一行
+            break;
+        }
+    });
 }
 
 // ============================================================
