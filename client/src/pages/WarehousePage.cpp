@@ -1,5 +1,6 @@
 #include "WarehousePage.h"
 #include "database/Session.h"
+#include "core/AppSettings.h"
 #include "remote/RemoteQuery.h"
 #include "remote/RemoteModel.h"
 #include "remote/RemoteDb.h"
@@ -29,6 +30,7 @@
 #include <QJsonValue>
 #include <QSet>
 #include <QMap>
+#include <QStyledItemDelegate>
 #include <algorithm>
 
 #define S_BTN1 "QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#3498db;color:#fff;font-size:12px;font-weight:bold;}"
@@ -47,6 +49,42 @@ static QString fmtQty(double v)
 }
 
 // ============================================================
+// 备件领取「销售价」列双击编辑委托：QDoubleSpinBox 编辑，提交后写库
+//   (由 RemoteModel::setQueryEditColumn 配合，setModelData → setData → UPDATE)
+// ============================================================
+class SalePriceDelegate : public QStyledItemDelegate
+{
+public:
+    explicit SalePriceDelegate(QObject *parent = nullptr)
+        : QStyledItemDelegate(parent) {}
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override
+    {
+        Q_UNUSED(option)
+        QDoubleSpinBox *ed = new QDoubleSpinBox(parent);
+        ed->setDecimals(2);
+        ed->setRange(0.0, 9999999.0);
+        ed->setPrefix("¥");
+        ed->setValue(index.data(Qt::EditRole).toDouble());
+        return ed;
+    }
+
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        if (auto *ed = qobject_cast<QDoubleSpinBox *>(editor))
+            ed->setValue(index.data(Qt::EditRole).toDouble());
+    }
+
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &index) const override
+    {
+        if (auto *ed = qobject_cast<QDoubleSpinBox *>(editor))
+            model->setData(index, ed->value(), Qt::EditRole);
+    }
+};
+
+// ============================================================
 // 工具函数实现
 // ============================================================
 
@@ -59,12 +97,13 @@ QString WarehousePage::mergedSelectSQL(const QString &extraCols, const QString &
         "SELECT p.id AS catalog_id, p.part_no AS '备件编号', p.name AS '备件名称', "
         "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
         "COALESCE(p.supplier,'') AS '供应商', "
+        "DATE(i.created_at) AS '入库时间', "
         "COALESCE(p.applicable_model,'') AS '适用车型' "
         "%1 "
         "FROM t_parts p "
         "JOIN t_part_instance i ON i.part_id = p.id "
         "%2 "
-        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model %3 "
+        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, DATE(i.created_at) %3 "
         "%4")
         .arg(extraCols.isEmpty() ? "" : ", " + extraCols,
              whereClause.isEmpty() ? "" : "WHERE " + whereClause,
@@ -304,7 +343,11 @@ void WarehousePage::setupUI()
     issueLayout->addWidget(m_issueTable, 1);
     m_issueModel = new RemoteModel(this);
     m_issueTable->setModel(m_issueModel);
-    m_issueTable->setEditTriggers(QAbstractItemView::NoEditTriggers);  // 备件领取：只读
+    // 备件领取：默认只读，仅「销售价」列可双击修改（改后直接写 t_parts.sale_price）
+    m_issueTable->setEditTriggers(QAbstractItemView::DoubleClicked);
+    m_issueTable->setItemDelegateForColumn(9, new SalePriceDelegate(this));
+    // 销售价列就地编辑：column 0 为 p.id（别名 catalog_id），真实主键列名 id
+    m_issueModel->setQueryEditColumn(9, "t_parts", 0, "id", "sale_price");
 
     QGroupBox *issueOp = new QGroupBox("出库操作");
     QHBoxLayout *issueOpLayout = new QHBoxLayout(issueOp);
@@ -641,7 +684,7 @@ void WarehousePage::setupUI()
         // 合并视图中 column 0 = catalog_id
         m_issuePartId = m_issueModel->data(m_issueModel->index(row, 0)).toInt();
         QString name = m_issueModel->data(m_issueModel->index(row, 2)).toString();
-        double stock = m_issueModel->data(m_issueModel->index(row, 6)).toDouble(); // 在库数量(可出库)
+        double stock = m_issueModel->data(m_issueModel->index(row, 7)).toDouble(); // 在库数量(可出库)
         // 计算同型号+同供应商的兄弟建档可出总量（出库支持自动追加，可超过本建档在库）
         double groupTotal = stock;
         {
@@ -794,7 +837,7 @@ void WarehousePage::setupUI()
         if (!idx.isValid()) return;
         int row = idx.row();
         m_retPartId = m_retModel->data(m_retModel->index(row, 0)).toInt();
-        double available = m_retModel->data(m_retModel->index(row, 6)).toDouble(); // 可退库数量
+        double available = m_retModel->data(m_retModel->index(row, 7)).toDouble(); // 可退库数量
         m_retQty->setMaximum(available > 0.0005 ? available : 0.001);
         m_retQty->setValue(1);
     });
@@ -807,7 +850,7 @@ void WarehousePage::setupUI()
         if (!idx.isValid()) return;
         int row = idx.row();
         m_purRetPartId = m_purRetModel->data(m_purRetModel->index(row, 0)).toInt();
-        int inStock = m_purRetModel->data(m_purRetModel->index(row, 6)).toInt(); // 在库数量
+        int inStock = m_purRetModel->data(m_purRetModel->index(row, 7)).toInt(); // 在库数量
         m_purRetQty->setMaximum(inStock > 0 ? inStock : 1);
     });
     connect(m_btnPurRetConfirm, &QPushButton::clicked, this, &WarehousePage::onPurchaseReturnConfirm);
@@ -985,7 +1028,12 @@ void WarehousePage::onIssueOrderSearchTextChanged(const QString &)
 void WarehousePage::onBillingOrderSearchTextChanged(const QString &)
 {
     // 实时搜索只刷新下拉；无匹配自动收起（不弹"未找到"），选中后由 selected 回调加载明细
-    showWorkOrderSearchPopup(m_billingOrderNo, m_billingWoCompleter, "待提单,已提单");
+    // 防御机制（简洁模式）：本模式工单派工后停在「已派工」直接提单；同时为兼容非简洁模式
+    // 遗留的「待提单」工单（前台已通知提单），两者都要能查询选择并提单为「已提单」。
+    const QString statusFilter = AppSettings::simpleMode()
+        ? "已派工,待提单,已提单"
+        : "待提单,已提单";
+    showWorkOrderSearchPopup(m_billingOrderNo, m_billingWoCompleter, statusFilter);
 }
 
 // ============================================================
@@ -997,23 +1045,34 @@ void WarehousePage::onPartsSearch()
     QString keyword = m_issuePartSearch->text().trimmed();
     RemoteQuery q;
 
-    // LEFT JOIN: 显示所有备件(含库存为0的)，按模糊关键字搜索
+    // 只显示在库数量>0 的备件（库存为0 的不可出库，不展示），按模糊关键字搜索。
+    // 按(进货价, 入库时间)分组：实例进货价/入库时间不同则分行显示，成本列在售价列前。
     QString likeWhere;
     if (!keyword.isEmpty())
-        likeWhere = "WHERE " + SqlUtil::likeConds(
+        likeWhere = " AND " + SqlUtil::likeConds(
             {"p.part_no", "p.name", "p.supplier", "p.spec"}, ":kw");
     QString sql = QString(
         "SELECT p.id AS catalog_id, p.part_no AS '备件编号', p.name AS '备件名称', "
         "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
         "COALESCE(p.supplier,'') AS '供应商', "
+        "g.in_time AS '入库时间', "
         "COALESCE(p.applicable_model,'') AS '适用车型', "
-        "COALESCE(p.stock, 0) AS '在库数量', "
+        "g.stock AS '在库数量', "
+        "g.cost AS '成本', "
         "COALESCE(p.sale_price, (SELECT unit_sale_price FROM t_part_instance "
         " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
         "FROM t_parts p "
-        "LEFT JOIN t_part_instance i ON i.part_id = p.id "
-        "%1 "
-        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.sale_price, p.stock "
+        "INNER JOIN ("
+        " SELECT i.part_id, COALESCE(i.unit_purchase_price, p2.purchase_price, 0) AS cost, "
+        " DATE(i.created_at) AS in_time, "
+        " ROUND(SUM(1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi "
+        "   WHERE wi.part_instance_id=i.id AND wi.item_type='材料'),0)),3) AS stock "
+        " FROM t_part_instance i "
+        " JOIN t_parts p2 ON p2.id = i.part_id "
+        " WHERE i.status = '在库' "
+        " GROUP BY i.part_id, COALESCE(i.unit_purchase_price, p2.purchase_price, 0), DATE(i.created_at) "
+        ") g ON g.part_id = p.id "
+        "WHERE g.stock > 0%1 "
         "ORDER BY p.name LIMIT 200")
         .arg(likeWhere);
 
@@ -1216,12 +1275,14 @@ void WarehousePage::onPartsIssue()
 // ============================================================
 
 // 按「锁定工单 + 工单状态」控制 确认提单/取消提单 按钮显示
-//   确认提单: 仅锁定工单且状态为「待提单」时显示
+//   确认提单: 仅锁定工单且状态为「待提单」时显示；
+//             简洁模式下「已派工」工单也可直接确认提单（绕过待提单）
 //   取消提单: 仅锁定工单且状态为「已提单」(等待结算) 时显示
 void WarehousePage::updateBillButtons(int workorderId, const QString &status)
 {
     const bool locked = (workorderId > 0);
-    m_btnConfirmBill->setVisible(locked && status == "待提单");
+    const bool simple = AppSettings::simpleMode();
+    m_btnConfirmBill->setVisible(locked && (status == "待提单" || (simple && status == "已派工")));
     m_btnCancelBill->setVisible(locked && status == "已提单");
 }
 
@@ -1268,7 +1329,9 @@ void WarehousePage::onBillingSearchOrder()
     q2.exec();
 
     m_billingTable->setRowCount(0);
-    const bool canEditPrice = (status == "待提单");   // 仅待提单（确认提单前）可改单价
+    // 仅提单前可改单价：普通模式=待提单；简洁模式=已派工/待提单
+    const bool canEditPrice = (status == "待提单")
+        || (AppSettings::simpleMode() && status == "已派工");
     int r = 0;
     while (q2.next()) {
         m_billingTable->insertRow(r);
@@ -1320,17 +1383,8 @@ void WarehousePage::onBillingSearchOrder()
     m_lblBillingTotal->setText(QString("材料费合计: ¥%1 | 总成本: ¥%2")
                                .arg(matTotal, 0, 'f', 2).arg(costTotal, 0, 'f', 2));
 
-    // 确认提单/取消提单按钮：仅锁定工单且状态匹配时显示
+    // 确认提单/取消提单按钮：仅锁定工单且状态匹配时显示（状态已在信息栏展示，不再弹窗解释）
     updateBillButtons(m_billingOrderId, status);
-
-    if (status == "已派工") {
-        QMessageBox::information(this, "提示", "该工单尚未通知提单，请先由前台通知提单后再操作");
-    } else if (status == "已结算") {
-        QMessageBox::information(this, "提示", "该工单已结算，无法操作");
-    } else if (status != "待提单" && status != "已提单") {
-        QMessageBox::warning(this, "状态错误",
-            QString("当前状态为「%1」，需要「待提单」或「已提单」才能操作").arg(status));
-    }
 }
 
 // ============================================================
@@ -1563,6 +1617,9 @@ void WarehousePage::onCancelBill()
 {
     if (m_billingOrderId == 0) return;
 
+    // 取消提单的退回状态：普通模式退回「待提单」；简洁模式无待提单，直接退回「已派工」
+    const QString revertStatus = AppSettings::simpleMode() ? "已派工" : "待提单";
+
     // 检查当前工单状态
     RemoteQuery cq;
     cq.prepare("SELECT status FROM t_workorder WHERE id = :id");
@@ -1570,9 +1627,10 @@ void WarehousePage::onCancelBill()
     cq.exec();
     if (cq.next()) {
         QString st = cq.value(0).toString();
-        if (st == "待提单") {
+        if (st == revertStatus) {
             QMessageBox::warning(this, "操作无效",
-                "该工单状态为「待提单」，尚未确认提单，无需取消。\n如需提单，请使用「确认提单」按钮。");
+                QString("该工单状态为「%1」，尚未确认提单，无需取消。\n如需提单，请使用「确认提单」按钮。")
+                    .arg(revertStatus));
             return;
         }
         if (st != "已提单") {
@@ -1585,8 +1643,8 @@ void WarehousePage::onCancelBill()
     // 取消提单在一个事务内原子执行（经 4s-server）
     QJsonArray steps;
     steps.append(RemoteDb::step(
-        "UPDATE t_workorder SET status = '待提单' WHERE id = :id AND status = '已提单'",
-        QJsonObject{ { ":id", m_billingOrderId } }));
+        "UPDATE t_workorder SET status = :st WHERE id = :id AND status = '已提单'",
+        QJsonObject{ { ":st", revertStatus }, { ":id", m_billingOrderId } }));
     // 将该工单关联的已安装实例恢复为已领出
     steps.append(RemoteDb::step(
         "UPDATE t_part_instance SET status = '已领出', vehicle_id = NULL, "
@@ -1602,20 +1660,21 @@ void WarehousePage::onCancelBill()
     // 同步更新维修历史状态
     {
         RemoteQuery mu;
-        mu.prepare("UPDATE t_maintenance_history SET status='待提单' WHERE workorder_id=:oid");
+        mu.prepare("UPDATE t_maintenance_history SET status=:st WHERE workorder_id=:oid");
+        mu.bindValue(":st", revertStatus);
         mu.bindValue(":oid", m_billingOrderId);
         mu.exec();
     }
 
-    updateBillButtons(m_billingOrderId, "待提单");
+    updateBillButtons(m_billingOrderId, revertStatus);
     {
         QString txt = m_lblBillingInfo->text();
-        txt.replace("已提单", "待提单");
+        txt.replace("已提单", revertStatus);
         m_lblBillingInfo->setText(txt);
     }
 
     QMessageBox::information(this, "取消成功",
-        "提单已撤销，工单状态恢复为「待提单」，备件已恢复为已领出状态。");
+        QString("提单已撤销，工单状态恢复为「%1」，备件已恢复为已领出状态。").arg(revertStatus));
 }
 
 // ============================================================
@@ -1685,9 +1744,9 @@ void WarehousePage::onPurchaseAddItem()
     m_purchaseList << it;
     refreshPurchaseList();
 
-    // 清空输入区，方便连续录入
+    // 清空输入区，方便连续录入（保留供应商：同一批次通常为同一供应商）
     m_purPartNo->clear(); m_purPartName->clear(); m_purSpec->clear();
-    m_purSupplier->clear(); m_purApplicableModel->clear();
+    m_purApplicableModel->clear();
     m_purCost->setValue(0); m_purPrice->setValue(0);
     m_purQty->setValue(1);
     m_purPartNo->setFocus();
@@ -1953,12 +2012,15 @@ bool WarehousePage::buildPurchaseInboundSteps(const PurchaseItem &it, QJsonArray
 void WarehousePage::onStockSearch()
 {
     QString keyword = m_stockKeyword->text().trimmed();
+    // 按(成本, 入库时间)分组：实例进货价/入库时间不同则分行显示，成本列在售价列前
     QString extraCols = QString(
-        "COALESCE(p.stock, 0) AS '在库数量', "
+        "ROUND(SUM(CASE WHEN i.status='在库' THEN 1 - COALESCE((SELECT SUM(wi.quantity) "
+        "FROM t_workorder_item wi WHERE wi.part_instance_id=i.id AND wi.item_type='材料'),0) "
+        "ELSE 0 END),3) AS '在库数量', "
         "COUNT(CASE WHEN i.status='已领出' THEN 1 END) AS '已领出', "
         "COUNT(CASE WHEN i.status='已安装' THEN 1 END) AS '已安装', "
         "COUNT(CASE WHEN i.status NOT IN ('已退货') THEN 1 END) AS '总数', "
-        "COALESCE(p.purchase_price, 0) AS '进货价', "
+        "COALESCE(i.unit_purchase_price, p.purchase_price, 0) AS '成本', "
         "COALESCE(p.sale_price, 0) AS '销售价'");
 
     QString where;
@@ -1966,7 +2028,8 @@ void WarehousePage::onStockSearch()
         where = SqlUtil::likeConds({"p.part_no", "p.name", "p.spec", "p.supplier"}, ":kw");
 
     QString sql = mergedSelectSQL(extraCols, where,
-        "p.purchase_price, p.sale_price, p.stock", "ORDER BY p.name LIMIT 500");
+        "COALESCE(i.unit_purchase_price, p.purchase_price, 0), p.sale_price",
+        "ORDER BY p.name LIMIT 500");
     RemoteQuery q;
     q.prepare(sql);
     if (!keyword.isEmpty())
@@ -2063,19 +2126,25 @@ void WarehousePage::onReturnSearch()
 
     // 退库仅针对「已派工」工单：待提单/已提单/已结算工单的备件已进入流程，不允许退回。
     // 可退数量 = 该工单该备件未退库明细数量合计（出库支持小数后按数量求和）。
+    // 按(进货价, 入库时间)分组：实例进货价/入库时间不同则分行显示，成本列在售价列前。
     QString sql = QString(
         "SELECT p.id AS catalog_id, p.part_no AS '备件编号', p.name AS '备件名称', "
         "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
         "COALESCE(p.supplier,'') AS '供应商', "
+        "DATE(COALESCE(ii.created_at, p.created_at)) AS '入库时间', "
         "COALESCE(p.applicable_model,'') AS '适用车型', "
         "ROUND(SUM(wi.quantity),3) AS '可退数量', "
+        "COALESCE(ii.unit_purchase_price, p.purchase_price, 0) AS '成本', "
         "COALESCE(p.sale_price, (SELECT unit_sale_price FROM t_part_instance "
         " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
         "FROM t_parts p "
         "INNER JOIN t_workorder_item wi ON wi.part_id = p.id AND wi.item_type = '材料' "
+        "LEFT JOIN t_part_instance ii ON ii.id = wi.part_instance_id "
         "INNER JOIN t_workorder w ON w.id = wi.workorder_id AND w.status = '已派工' "
         "%1 "
-        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.sale_price "
+        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.sale_price, "
+        "COALESCE(ii.unit_purchase_price, p.purchase_price, 0), "
+        "DATE(COALESCE(ii.created_at, p.created_at)) "
         "ORDER BY p.name LIMIT 200")
         .arg(whereClause);
 
@@ -2232,7 +2301,8 @@ void WarehousePage::onPurchaseReturnSearch()
     QString keyword = m_purRetPartSearch->text().trimmed();
     RemoteQuery q;
 
-    // 与备件领取 onPartsSearch 同风格，但仅 JOIN 在库实例
+    // 与备件领取 onPartsSearch 同风格，但仅 JOIN 在库实例。
+    // 按(进货价, 入库时间)分组：实例进货价/入库时间不同则分行显示，成本列在售价列前。
     QString likeWhere;
     if (!keyword.isEmpty())
         likeWhere = "WHERE " + SqlUtil::likeConds(
@@ -2241,9 +2311,10 @@ void WarehousePage::onPurchaseReturnSearch()
         "SELECT p.id AS catalog_id, p.part_no AS '备件编号', p.name AS '备件名称', "
         "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
         "COALESCE(p.supplier,'') AS '供应商', "
+        "DATE(i.created_at) AS '入库时间', "
         "COALESCE(p.applicable_model,'') AS '适用车型', "
         "COUNT(i.id) AS '在库数量', "
-        "COALESCE(p.purchase_price, 0) AS '进货价', "
+        "COALESCE(i.unit_purchase_price, p.purchase_price, 0) AS '成本', "
         "COALESCE(p.sale_price, (SELECT unit_sale_price FROM t_part_instance "
         " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
         "FROM t_parts p "
@@ -2251,7 +2322,8 @@ void WarehousePage::onPurchaseReturnSearch()
         "AND (1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi "
         "     WHERE wi.part_instance_id = i.id AND wi.item_type='材料'),0)) >= 0.9995 "
         "%1 "
-        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.purchase_price, p.sale_price "
+        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.sale_price, "
+        "COALESCE(i.unit_purchase_price, p.purchase_price, 0), DATE(i.created_at) "
         "ORDER BY p.name LIMIT 200")
         .arg(likeWhere);
 

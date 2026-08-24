@@ -49,6 +49,13 @@ void RemoteModel::clear()
     endResetModel();
 }
 
+void RemoteModel::setQueryEditColumn(int column, const QString &table,
+                                     int pkColumnIndex, const QString &pkColumnDb,
+                                     const QString &valueColumn)
+{
+    m_queryEditCols[column] = { table, pkColumnIndex, pkColumnDb, valueColumn };
+}
+
 // ---------------- 可编辑表模式 ----------------
 
 void RemoteModel::setTable(const QString &table)
@@ -56,10 +63,11 @@ void RemoteModel::setTable(const QString &table)
     if (m_table == table)
         return;   // 同一张表无需重置状态（保留列头/排序）
     m_table = table;
-    // 切换表：丢弃上一张表残留的列头、排序与只读列设置，避免表头/数据错位
+    // 切换表：丢弃上一张表残留的列头、排序、只读列与就地编辑列设置，避免表头/数据错位
     const int last = qMax(m_columns.size() - 1, 0);
     m_headers.clear();
     m_readOnlyColumns.clear();
+    m_queryEditCols.clear();
     m_sortColumn = -1;
     m_sortOrder = Qt::AscendingOrder;
     emit headerDataChanged(Qt::Horizontal, 0, last);
@@ -280,9 +288,7 @@ QVariant RemoteModel::data(const QModelIndex &index, int role) const
 
 bool RemoteModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
-    if (!index.isValid() || role != Qt::EditRole || !isEditable())
-        return false;
-    if (m_readOnlyColumns.contains(index.column()))
+    if (!index.isValid() || role != Qt::EditRole)
         return false;
     if (index.row() < 0 || index.row() >= m_rows.size()
         || index.column() < 0 || index.column() >= m_columns.size())
@@ -292,6 +298,32 @@ bool RemoteModel::setData(const QModelIndex &index, const QVariant &value, int r
     const int col = index.column();
     if (m_rows[row][col] == value)
         return true;
+
+    // 只读查询模式的就地编辑列：按配置直接写库
+    if (m_queryEditCols.contains(col)) {
+        const QueryEditCol &cfg = m_queryEditCols[col];
+        if (cfg.pkColumnIndex < 0 || cfg.pkColumnIndex >= m_rows[row].size()) {
+            setModelError("就地编辑缺少主键值");
+            return false;
+        }
+        RemoteQuery q;
+        q.prepare(QString("UPDATE %1 SET %2 = :v WHERE %3 = :id")
+                      .arg(cfg.table, cfg.valueColumn, cfg.pkColumnDb));
+        q.bindValue(":v", value);
+        q.bindValue(":id", m_rows[row][cfg.pkColumnIndex]);
+        if (!q.exec()) {
+            setModelError(q.lastError().text());
+            return false;
+        }
+        m_rows[row][col] = value;
+        emit dataChanged(index, index, { role });
+        return true;
+    }
+
+    if (!isEditable())
+        return false;
+    if (m_readOnlyColumns.contains(col))
+        return false;
 
     if (m_strategy == OnFieldChange) {
         // 即时提交；失败则回滚缓存值并返回 false
@@ -342,7 +374,8 @@ Qt::ItemFlags RemoteModel::flags(const QModelIndex &index) const
     if (!index.isValid())
         return Qt::NoItemFlags;
     Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
-    if (isEditable() && !m_readOnlyColumns.contains(index.column()))
+    if (m_queryEditCols.contains(index.column())
+        || (isEditable() && !m_readOnlyColumns.contains(index.column())))
         f |= Qt::ItemIsEditable;
     return f;
 }

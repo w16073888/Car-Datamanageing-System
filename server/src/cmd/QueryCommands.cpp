@@ -15,14 +15,15 @@
 #include "../db/DbManager.h"
 #include "../auth/AuthManager.h"
 
-// 允许通过通用 execute 写操作的表白名单（16 张业务表；v_parts_stock 是视图，只读）
+// 允许通过通用 execute 写操作的表白名单（19 张业务表；v_parts_stock 是视图，只读）
 static const QSet<QString> kWriteTables = {
     "t_employee", "t_vehicle", "t_parts",
     "t_part_instance", "t_part_purchase", "t_workorder",
     "t_workorder_repair_item", "t_technician_work_record",
     "t_workorder_item", "t_quote_item", "t_inventory_log",
     "t_settlement", "t_maintenance_history", "t_vehicle_transaction",
-    "t_system_log"
+    "t_system_log",
+    "t_settlement_edit", "t_settlement_edit_item", "t_settlement_edit_repair"
 };
 
 // ---------- 审计日志辅助 ----------

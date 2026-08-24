@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "database/Session.h"
+#include "dialogs/SettingsDialog.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -85,9 +86,10 @@ void MainWindow::setupPages()
     // 按 PAGE_xxx 枚举顺序创建所有页面（已删除 8 个菜单不可达页面）
     m_pages[PAGE_EMPLOYEE]         = new EmployeePage;
     m_pages[PAGE_DATA_MANAGER]     = new DataManagerPage;
-    m_pages[PAGE_FRONT_DESK]       = new QWidget;  // 占位，前台工作台改为弹窗模式
+    m_pages[PAGE_FRONT_DESK]       = new QWidget;  // 占位，业务报修改为弹窗模式
     m_pages[PAGE_WAREHOUSE]        = new QWidget;  // 占位，库房工作台改为弹窗模式
     m_pages[PAGE_QUOTE]            = new QuotePage;
+    m_pages[PAGE_SETTLEMENT_EDIT]  = new SettlementEditPage;
     m_pages[PAGE_FINANCE]          = new FinancePage;
     m_pages[PAGE_SERVICE_REMINDER] = new ServiceReminderPage;
     m_pages[PAGE_CUSTOMER_VISIT]   = new CustomerVisitPage;
@@ -130,6 +132,12 @@ void MainWindow::setupMenuBar()
         switchToPage(PAGE_DATA_MANAGER);
     });
 
+    m_actSystemSettings = m_menuSystem->addAction("系统设置");
+    connect(m_actSystemSettings, &QAction::triggered, this, [this]() {
+        SettingsDialog dlg(this);
+        dlg.exec();
+    });
+
     m_menuSystem->addSeparator();
 
     m_actChangePwd = m_menuSystem->addAction("修改密码");
@@ -155,7 +163,7 @@ void MainWindow::setupMenuBar()
     // ============================================================
     m_menuRepair = m_menuBar->addMenu("前台业务");
 
-    m_actFrontDesk = m_menuRepair->addAction("前台工作台");
+    m_actFrontDesk = m_menuRepair->addAction("业务报修");
     m_actFrontDesk->setStatusTip("车辆登记、派工、打印报价单/工单");
     connect(m_actFrontDesk, &QAction::triggered, this, [this]() {
         // 非模态独立窗口（可最小化）：已打开则前置，关闭即销毁，重新点击新建
@@ -167,7 +175,7 @@ void MainWindow::setupMenuBar()
         }
         m_frontDeskDlg = new QDialog(this);
         QDialog *dlg = m_frontDeskDlg;
-        dlg->setWindowTitle("前台工作台");
+        dlg->setWindowTitle("业务报修");
         dlg->setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint
                             | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint
                             | Qt::WindowCloseButtonHint);
@@ -207,6 +215,12 @@ void MainWindow::setupMenuBar()
     m_actQuote = m_menuRepair->addAction("工单查询");
     connect(m_actQuote, &QAction::triggered, this, [this]() {
         switchToPage(PAGE_QUOTE);
+    });
+
+    m_actSettlementEdit = m_menuRepair->addAction("结算修改");
+    m_actSettlementEdit->setStatusTip("对已结算工单修改工时/材料/费用（仅本入口显示，不改原结算）");
+    connect(m_actSettlementEdit, &QAction::triggered, this, [this]() {
+        switchToPage(PAGE_SETTLEMENT_EDIT);
     });
 
     // ============================================================
@@ -311,6 +325,8 @@ void MainWindow::switchToPage(int index)
         } else if (auto *p = qobject_cast<DataManagerPage*>(target)) {
             p->refreshData();
         } else if (auto *p = qobject_cast<QuotePage*>(target)) {
+            p->refreshData();
+        } else if (auto *p = qobject_cast<SettlementEditPage*>(target)) {
             p->refreshData();
         } else if (auto *p = qobject_cast<ChangePasswordPage*>(target)) {
             p->refreshData();

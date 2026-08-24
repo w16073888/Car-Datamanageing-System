@@ -265,7 +265,7 @@ void FrontDeskPage::setupUI()
 
     QVBoxLayout *outer = new QVBoxLayout(this);
     outer->setContentsMargins(10,6,10,6); outer->setSpacing(4);
-    QLabel *title = new QLabel("前台工作台");
+    QLabel *title = new QLabel("业务报修");
     title->setStyleSheet("font-size:17px;font-weight:bold;color:#2c3e50;");
     outer->addWidget(title);
 

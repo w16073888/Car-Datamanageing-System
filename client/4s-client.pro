@@ -23,13 +23,16 @@ SOURCES += \
     src/remote/RemoteDb.cpp \
     src/remote/SqlUtil.cpp \
     src/database/Session.cpp \
+    src/core/AppSettings.cpp \
     src/dialogs/LoginDialog.cpp \
+    src/dialogs/SettingsDialog.cpp \
     src/dialogs/WorkOrderDetailDialog.cpp \
     src/pages/EmployeePage.cpp \
     src/pages/DataManagerPage.cpp \
     src/pages/FrontDeskPage.cpp \
     src/pages/WarehousePage.cpp \
     src/pages/QuotePage.cpp \
+    src/pages/SettlementEditPage.cpp \
     src/pages/FinancePage.cpp \
     src/pages/ServiceReminderPage.cpp \
     src/pages/CustomerVisitPage.cpp \
@@ -51,13 +54,16 @@ HEADERS += \
     src/remote/RemoteDb.h \
     src/remote/SqlUtil.h \
     src/database/Session.h \
+    src/core/AppSettings.h \
     src/dialogs/LoginDialog.h \
+    src/dialogs/SettingsDialog.h \
     src/dialogs/WorkOrderDetailDialog.h \
     src/pages/EmployeePage.h \
     src/pages/DataManagerPage.h \
     src/pages/FrontDeskPage.h \
     src/pages/WarehousePage.h \
     src/pages/QuotePage.h \
+    src/pages/SettlementEditPage.h \
     src/pages/FinancePage.h \
     src/pages/ServiceReminderPage.h \
     src/pages/CustomerVisitPage.h \
@@ -74,6 +80,7 @@ HEADERS += \
 INCLUDEPATH += src
 INCLUDEPATH += src/remote
 INCLUDEPATH += src/database
+INCLUDEPATH += src/core
 INCLUDEPATH += src/dialogs
 INCLUDEPATH += src/pages
 INCLUDEPATH += src/widgets

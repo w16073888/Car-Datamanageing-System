@@ -41,6 +41,16 @@ public:
     // 直接填充结果（列名即表头，用于客户端合并/加工后的数据）
     void clear();
 
+    // ---- 只读查询模式的就地编辑列 ----
+    // 让 setQuery 结果的某一列可双击编辑，编辑提交时按配置直接写库（不进入表格模式）。
+    //   例：备件领取列表的"销售价"列（column 0 是 p.id 的别名 catalog_id）→
+    //     setQueryEditColumn(7, "t_parts", 0, "id", "sale_price");
+    //   pkColumnIndex: 模型中存放主键值的列（通常为 0）
+    //   pkColumnDb:    UPDATE 的 WHERE 所用的真实主键列名
+    void setQueryEditColumn(int column, const QString &table,
+                            int pkColumnIndex, const QString &pkColumnDb,
+                            const QString &valueColumn);
+
     // ---- 可编辑表模式（替代 QSqlTableModel）----
     void setTable(const QString &table);
     QString tableName() const;
@@ -90,6 +100,9 @@ private:
     QList<QVariantList> m_rows;
     QHash<int, QString> m_headers;      // section → 中文表头
     QSet<int> m_readOnlyColumns;        // 只读列集合（section 索引，单元格编辑表用）
+    // 只读查询模式下允许就地编辑的列（column → 写库配置）
+    struct QueryEditCol { QString table; int pkColumnIndex; QString pkColumnDb; QString valueColumn; };
+    QHash<int, QueryEditCol> m_queryEditCols;
     QHash<int, QVariantList> m_pendingEdits;  // row → 修改后的行（OnManualSubmit）
     QList<QString> m_pendingDeletes;    // 待删除行的主键值
     QSqlError m_lastError;

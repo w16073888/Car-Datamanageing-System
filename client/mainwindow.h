@@ -22,6 +22,7 @@
 #include "pages/ChangePasswordPage.h"
 #include "pages/FrontDeskPage.h"
 #include "pages/WarehousePage.h"
+#include "pages/SettlementEditPage.h"
 
 class QDialog;
 
@@ -50,9 +51,10 @@ private:
     enum PageIndex {
         PAGE_EMPLOYEE = 0,
         PAGE_DATA_MANAGER,
-        PAGE_FRONT_DESK,        // 前台工作台（车辆登记+派工+打印报价单/工单）— 占位，弹窗模式
+        PAGE_FRONT_DESK,        // 业务报修（车辆登记+派工+打印报价单/工单）— 占位，弹窗模式
         PAGE_WAREHOUSE,         // 库房工作台（备件领取+材料结算+采购入库+库存查询+退库退货）— 占位，弹窗模式
         PAGE_QUOTE,             // 报价管理/工单查询
+        PAGE_SETTLEMENT_EDIT,   // 结算修改（已结算工单，overlay 快照显示）
         PAGE_FINANCE,
         PAGE_SERVICE_REMINDER,
         PAGE_CUSTOMER_VISIT,
@@ -76,6 +78,7 @@ private:
     QMenu *m_menuSystem;
     QAction *m_actEmployee;
     QAction *m_actDataManager;
+    QAction *m_actSystemSettings;   // 系统设置
     QAction *m_actChangePwd;
     QAction *m_actLogout;
 
@@ -89,6 +92,7 @@ private:
 
     // 结算管理（原报价管理）
     QAction *m_actQuote;
+    QAction *m_actSettlementEdit;   // 结算修改
 
     // 财务管理
     QMenu *m_menuFinance;

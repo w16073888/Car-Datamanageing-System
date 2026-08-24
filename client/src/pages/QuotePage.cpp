@@ -1,5 +1,6 @@
 #include "QuotePage.h"
 #include "database/Session.h"
+#include "core/AppSettings.h"
 #include "remote/RemoteQuery.h"
 #include "remote/RemoteDb.h"
 #include "remote/SqlUtil.h"
@@ -664,7 +665,9 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
 // ============================================================
 void QuotePage::updateActionButtons(const QString &status)
 {
-    m_btnNotifyBilling->setVisible(status == "已派工");
+    // 简洁模式：状态流转 派工中→已提单→已结算，前台不提供「通知提单」按钮
+    const bool simple = AppSettings::simpleMode();
+    m_btnNotifyBilling->setVisible(!simple && status == "已派工");
     m_btnCancelNotify->setVisible(status == "待提单");
     m_btnSettle->setVisible(status == "已提单");
     m_btnSavePdf->setVisible(status == "已提单" || status == "已结算");
