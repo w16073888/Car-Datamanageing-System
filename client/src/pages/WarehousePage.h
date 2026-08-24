@@ -13,6 +13,7 @@
 #include <QTableWidget>
 #include <QStandardItemModel>
 #include <QJsonArray>
+#include <QPair>
 #include "remote/RemoteModel.h"
 #include "widgets/SearchCompleter.h"
 
@@ -60,6 +61,7 @@ private slots:
 
     // 库存查询
     void onStockSearch();
+    void onViewUsageLog();      // 查看备件去向（各实例 usage_log 字符串列表）
 
     // 备件退库
     void onReturnSearch();
@@ -109,6 +111,14 @@ private:
     QList<int> getInStockInstanceIds(int partId, int count) const;
     /// 获取某备件的已领出实例ID列表(前N个)
     QList<int> getCheckedOutInstanceIds(int partId, int count) const;
+    /// 实例剩余量 = 1 - 该实例已出库且未退库的 t_workorder_item.quantity 合计
+    double instanceRemaining(int instanceId) const;
+    /// 某备件的在库实例(id, 剩余量)列表，按 id 升序（剩余量>0）
+    QList<QPair<int,double>> inStockInstancesWithRemaining(int partId) const;
+    /// 事务内追加实例去向记录（usage_log 每行一条，追加式）
+    void appendUsageLog(QJsonArray &steps, const QString &instanceRef, const QString &line);
+    /// 事务步骤：重算某建档的可出库库存 = 在库实例剩余量之和
+    void recalcStock(QJsonArray &steps, const QString &partRef);
     /// 批量更新实例状态
     bool updateInstanceStatus(const QList<int> &instanceIds, const QString &newStatus,
                               int vehicleId = -1, int workorderId = -1,
@@ -140,7 +150,7 @@ private:
     QTableView *m_issueTable;
     RemoteModel *m_issueModel;
     QLabel *m_lblIssuePartInfo;
-    QSpinBox *m_spinIssueQty;
+    QDoubleSpinBox *m_spinIssueQty;
     QPushButton *m_btnIssue;
     QLabel *m_issueStatusBar;   // 状态栏：显示锁定工单号和车牌号
     int m_issuePartId;          // 选中的备件目录ID (t_parts.id)
@@ -183,6 +193,7 @@ private:
     QWidget *m_tabStock;
     QLineEdit *m_stockKeyword;
     QPushButton *m_btnStockSearch;
+    QPushButton *m_btnStockUsage;   // 查看去向
     QTableView *m_stockTable;
     RemoteModel *m_stockModel;
 
@@ -194,7 +205,7 @@ private:
     QPushButton *m_btnRetSearch;
     QTableView *m_retTable;
     RemoteModel *m_retModel;
-    QSpinBox *m_retQty;
+    QDoubleSpinBox *m_retQty;
     QPushButton *m_btnRetConfirm;
     QLabel *m_retStatusBar;       // 状态栏：显示锁定工单号和车牌号
     int m_retPartId;              // 选中的备件目录ID

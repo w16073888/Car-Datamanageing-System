@@ -27,6 +27,8 @@
 #include <QTableWidget>
 #include <QJsonArray>
 #include <QJsonValue>
+#include <QSet>
+#include <QMap>
 #include <algorithm>
 
 #define S_BTN1 "QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#3498db;color:#fff;font-size:12px;font-weight:bold;}"
@@ -35,6 +37,14 @@
 #define S_BTN2H S_BTN2 "QPushButton:hover{background:#219a52;}"
 #define S_BTNG "QPushButton{padding:6px 14px;border:1px solid #bdc3c7;border-radius:3px;background:#ecf0f1;font-size:12px;}"
 #define S_BTNGH S_BTNG "QPushButton:hover{background:#d5dbdb;}"
+
+// 数量格式化：整数值显示为整数，小数保留 3 位（与 DECIMAL(10,3) 一致）
+static QString fmtQty(double v)
+{
+    return (qAbs(v - qRound64(v)) < 0.0005)
+        ? QString::number(qRound64(v))
+        : QString::number(v, 'f', 3);
+}
 
 // ============================================================
 // 工具函数实现
@@ -132,6 +142,64 @@ bool WarehousePage::updateInstanceStatus(const QList<int> &instanceIds, const QS
         q.bindValue(QString(":id%1").arg(i), instanceIds[i]);
 
     return q.exec();
+}
+
+// ============================================================
+// 实例剩余量 / 去向记录 工具函数
+// ============================================================
+
+// 实例剩余量 = 1 - 该实例全部未退库明细数量合计
+double WarehousePage::instanceRemaining(int instanceId) const
+{
+    RemoteQuery q;
+    q.prepare("SELECT ROUND(1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi "
+              "WHERE wi.part_instance_id = :iid AND wi.item_type='材料'), 0), 3)");
+    q.bindValue(":iid", instanceId);
+    q.exec();
+    return q.next() ? q.value(0).toDouble() : 0.0;
+}
+
+// 某备件的在库实例(id, 剩余量)列表，按 id 升序（仅保留剩余量>0）
+QList<QPair<int,double>> WarehousePage::inStockInstancesWithRemaining(int partId) const
+{
+    QList<QPair<int,double>> res;
+    RemoteQuery q;
+    q.prepare("SELECT i.id, ROUND(1 - COALESCE((SELECT SUM(wi.quantity) "
+              "FROM t_workorder_item wi WHERE wi.part_instance_id = i.id "
+              "AND wi.item_type='材料'), 0), 3) AS rem "
+              "FROM t_part_instance i WHERE i.part_id = :pid AND i.status = '在库' "
+              "ORDER BY i.id ASC");
+    q.bindValue(":pid", partId);
+    q.exec();
+    while (q.next()) {
+        double rem = q.value(1).toDouble();
+        if (rem > 0.0005)
+            res << QPair<int,double>(q.value(0).toInt(), rem);
+    }
+    return res;
+}
+
+// 事务步骤：追加实例去向记录（usage_log 每行一条，追加式）。
+// instanceRef 可为数字字符串或 @实例引用（入库新建实例用）
+void WarehousePage::appendUsageLog(QJsonArray &steps, const QString &instanceRef,
+                                   const QString &line)
+{
+    steps.append(RemoteDb::step(
+        "UPDATE t_part_instance SET usage_log = CASE WHEN usage_log IS NULL OR usage_log = '' "
+        "THEN :line ELSE CONCAT(usage_log, CHAR(10), :line) END WHERE id = :iid",
+        QJsonObject{ { ":line", line }, { ":iid", instanceRef } }));
+}
+
+// 事务步骤：重算建档可出库库存 = 在库实例剩余量之和（支持小数）
+void WarehousePage::recalcStock(QJsonArray &steps, const QString &partRef)
+{
+    steps.append(RemoteDb::step(
+        "UPDATE t_parts SET stock = ROUND(COALESCE((SELECT SUM(1 - COALESCE("
+        "(SELECT SUM(wi.quantity) FROM t_workorder_item wi "
+        " WHERE wi.part_instance_id = i.id AND wi.item_type='材料'), 0)) "
+        "FROM t_part_instance i WHERE i.part_id = :pid AND i.status = '在库'), 0), 3) "
+        "WHERE id = :pid2",
+        QJsonObject{ { ":pid", partRef }, { ":pid2", partRef } }));
 }
 
 // ============================================================
@@ -244,8 +312,9 @@ void WarehousePage::setupUI()
     m_lblIssuePartInfo->setStyleSheet("font-weight:bold;");
     issueOpLayout->addWidget(m_lblIssuePartInfo);
     issueOpLayout->addWidget(new QLabel("数量:"));
-    m_spinIssueQty = new QSpinBox;
-    m_spinIssueQty->setRange(1, 99999);
+    m_spinIssueQty = new QDoubleSpinBox;
+    m_spinIssueQty->setDecimals(3);
+    m_spinIssueQty->setRange(0.001, 999999);
     issueOpLayout->addWidget(m_spinIssueQty);
     m_btnIssue = new QPushButton("确认出库");
     m_btnIssue->setStyleSheet("QPushButton{padding:8px 20px;border:none;border-radius:3px;background:#e67e22;color:#fff;font-weight:bold;}QPushButton:hover{background:#d35400;}");
@@ -441,6 +510,9 @@ void WarehousePage::setupUI()
     m_btnStockSearch = new QPushButton("查询");
     m_btnStockSearch->setStyleSheet(S_BTN1H);
     stockTop->addWidget(m_btnStockSearch);
+    m_btnStockUsage = new QPushButton("查看去向");
+    m_btnStockUsage->setStyleSheet(S_BTNGH);
+    stockTop->addWidget(m_btnStockUsage);
     stockLayout->addLayout(stockTop);
 
     m_stockTable = new QTableView;
@@ -490,8 +562,9 @@ void WarehousePage::setupUI()
 
     QHBoxLayout *retOp = new QHBoxLayout;
     retOp->addWidget(new QLabel("退库数量:"));
-    m_retQty = new QSpinBox;
-    m_retQty->setRange(1, 99999);
+    m_retQty = new QDoubleSpinBox;
+    m_retQty->setDecimals(3);
+    m_retQty->setRange(0.001, 999999);
     retOp->addWidget(m_retQty);
     m_btnRetConfirm = new QPushButton("确认退库");
     m_btnRetConfirm->setStyleSheet("QPushButton{padding:8px 20px;border:none;border-radius:3px;background:#e67e22;color:#fff;font-weight:bold;}QPushButton:hover{background:#d35400;}");
@@ -568,9 +641,32 @@ void WarehousePage::setupUI()
         // 合并视图中 column 0 = catalog_id
         m_issuePartId = m_issueModel->data(m_issueModel->index(row, 0)).toInt();
         QString name = m_issueModel->data(m_issueModel->index(row, 2)).toString();
-        int stock = m_issueModel->data(m_issueModel->index(row, 6)).toInt(); // 在库数量
-        m_lblIssuePartInfo->setText(QString("已选: %1 | 在库: %2").arg(name).arg(stock));
-        m_spinIssueQty->setMaximum(stock > 0 ? stock : 1);
+        double stock = m_issueModel->data(m_issueModel->index(row, 6)).toDouble(); // 在库数量(可出库)
+        // 计算同型号+同供应商的兄弟建档可出总量（出库支持自动追加，可超过本建档在库）
+        double groupTotal = stock;
+        {
+            RemoteQuery gq;
+            gq.prepare("SELECT part_no, COALESCE(NULLIF(spec,''),''), COALESCE(supplier,'') "
+                       "FROM t_parts WHERE id = :pid");
+            gq.bindValue(":pid", m_issuePartId);
+            gq.exec();
+            if (gq.next()) {
+                QString pn = gq.value(0).toString();
+                QString sp = gq.value(1).toString();
+                QString sup = gq.value(2).toString();
+                gq.prepare("SELECT COALESCE(SUM(stock),0) FROM t_parts "
+                           "WHERE part_no = :pn AND COALESCE(NULLIF(spec,''),'') = :sp "
+                           "AND COALESCE(supplier,'') = :sup");
+                gq.bindValue(":pn", pn); gq.bindValue(":sp", sp); gq.bindValue(":sup", sup);
+                gq.exec();
+                if (gq.next()) groupTotal = gq.value(0).toDouble();
+            }
+        }
+        m_lblIssuePartInfo->setText(
+            QString("已选: %1 | 本建档可出: %2 | 同型号同供应商可出: %3")
+            .arg(name).arg(fmtQty(stock)).arg(fmtQty(groupTotal)));
+        m_spinIssueQty->setMaximum(groupTotal > 0.0005 ? groupTotal : 0.001);
+        m_spinIssueQty->setValue(1);
     });
 
     // 工单多结果下拉：备件领取 / 结算提单 各自挂靠一个输入框
@@ -621,7 +717,7 @@ void WarehousePage::setupUI()
             QTableWidgetItem *subItem   = m_billingTable->item(row, 3);
             if (priceItem && qtyItem && subItem) {
                 double price = priceItem->text().remove("¥").toDouble();
-                int    qty   = qtyItem->text().toInt();
+                double qty   = qtyItem->text().toDouble();
                 subItem->setText(QString("¥%1").arg(qty * price, 0, 'f', 2));
             }
         }
@@ -664,6 +760,7 @@ void WarehousePage::setupUI()
     connect(m_btnStockSearch, &QPushButton::clicked, this, &WarehousePage::onStockSearch);
     // 库存查询模糊搜索：每次修改输入即触发搜索并刷新结果
     connect(m_stockKeyword, &QLineEdit::textChanged, this, &WarehousePage::onStockSearch);
+    connect(m_btnStockUsage, &QPushButton::clicked, this, &WarehousePage::onViewUsageLog);
 
     // 备件退库 — 工单搜索 + 状态栏更新 + 锁定工单ID
     // 工单/车牌输入完成：回车、Tab 或失焦自动锁定工单
@@ -697,8 +794,9 @@ void WarehousePage::setupUI()
         if (!idx.isValid()) return;
         int row = idx.row();
         m_retPartId = m_retModel->data(m_retModel->index(row, 0)).toInt();
-        int available = m_retModel->data(m_retModel->index(row, 6)).toInt(); // 可退库数量
-        m_retQty->setMaximum(available > 0 ? available : 1);
+        double available = m_retModel->data(m_retModel->index(row, 6)).toDouble(); // 可退库数量
+        m_retQty->setMaximum(available > 0.0005 ? available : 0.001);
+        m_retQty->setValue(1);
     });
     connect(m_btnRetConfirm, &QPushButton::clicked, this, &WarehousePage::onReturnConfirm);
 
@@ -909,13 +1007,13 @@ void WarehousePage::onPartsSearch()
         "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
         "COALESCE(p.supplier,'') AS '供应商', "
         "COALESCE(p.applicable_model,'') AS '适用车型', "
-        "COUNT(CASE WHEN i.status='在库' THEN 1 END) AS '在库数量', "
+        "COALESCE(p.stock, 0) AS '在库数量', "
         "COALESCE(p.sale_price, (SELECT unit_sale_price FROM t_part_instance "
         " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
         "FROM t_parts p "
         "LEFT JOIN t_part_instance i ON i.part_id = p.id "
         "%1 "
-        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.sale_price "
+        "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.sale_price, p.stock "
         "ORDER BY p.name LIMIT 200")
         .arg(likeWhere);
 
@@ -944,95 +1042,144 @@ void WarehousePage::onPartsIssue()
         QMessageBox::warning(this, "提示", "请输入领取人");
         return;
     }
-    int qty = m_spinIssueQty->value();
-
-    // 获取在库实例
-    QList<int> instanceIds = getInStockInstanceIds(m_issuePartId, qty);
-    if (instanceIds.size() < qty) {
-        QMessageBox::warning(this, "库存不足",
-            QString("当前在库 %1 件，出库数量不能超过 %1").arg(instanceIds.size()));
+    double qty = m_spinIssueQty->value();
+    if (qty <= 0.0005) {
+        QMessageBox::warning(this, "提示", "出库数量必须大于 0");
         return;
     }
 
-    // 获取备件信息
+    // 查找工单ID（未绑定工单不能出库：实例需绑定工单）
     RemoteQuery q;
-    q.prepare("SELECT part_no, name, "
-              "COALESCE(NULLIF(sale_price, 0), purchase_price, 0) FROM t_parts WHERE id = :id");
-    q.bindValue(":id", m_issuePartId);
-    q.exec();
-    if (!q.next()) return;
-    QString partNo = q.value(0).toString();
-    QString partName = q.value(1).toString();
-    double salePrice = q.value(2).toDouble();
-
-    // 查找工单ID
-    q.prepare("SELECT id, vehicle_id FROM t_workorder WHERE order_no = :no");
+    q.prepare("SELECT id FROM t_workorder WHERE order_no = :no");
     q.bindValue(":no", orderNo);
     q.exec();
     int woid = 0;
     if (q.next()) woid = q.value(0).toInt();
-
-    // 未绑定工单不能出库：工单号必须真实存在于 t_workorder，否则实例无法绑定工单
     if (woid == 0) {
         QMessageBox::warning(this, "无法出库",
             QString("工单「%1」不存在，未绑定工单时不能出库").arg(orderNo));
         return;
     }
 
-    // 领料出库在一个事务内原子执行（经 4s-server）
-    QJsonArray steps;
-    {
-        // 更新实例状态为已领出（IN 子句，替代原 updateInstanceStatus 辅助函数）
-        QStringList phs;
-        for (int i = 0; i < instanceIds.size(); i++)
-            phs << QString(":id%1").arg(i);
-        QJsonObject params;
-        params[":st"] = "已领出";
-        if (woid > 0) params[":wid"] = woid;
-        if (!recipient.isEmpty()) params[":rec"] = recipient;
-        for (int i = 0; i < instanceIds.size(); i++)
-            params[QString(":id%1").arg(i)] = instanceIds[i];
-        steps.append(RemoteDb::step(
-            "UPDATE t_part_instance SET status = :st, updated_at = NOW() "
-            + QString(woid > 0 ? ", workorder_id = :wid " : "")
-            + QString(!recipient.isEmpty() ? ", recipient = :rec " : "")
-            + "WHERE id IN (" + phs.join(",") + ")",
-            params));
+    // 取所选建档的分组键 (part_no, spec, supplier)
+    q.prepare("SELECT part_no, COALESCE(NULLIF(spec,''),''), COALESCE(supplier,'') "
+              "FROM t_parts WHERE id = :id");
+    q.bindValue(":id", m_issuePartId);
+    q.exec();
+    if (!q.next()) {
+        QMessageBox::warning(this, "提示", "所选备件不存在");
+        return;
+    }
+    QString partNo = q.value(0).toString();
+    QString specKey = q.value(1).toString();
+    QString supplierKey = q.value(2).toString();
+
+    // 构建实例池 (part_id, instance_id, 剩余量)：
+    //   先取所选建档在库实例，累计不足时自动追加「同型号+同供应商」的兄弟建档实例
+    struct PoolItem { int partId = 0; int instanceId = 0; double remaining = 0; };
+    QList<PoolItem> pool;
+    double available = 0;
+    auto addInstances = [this, &pool, &available](int pid) {
+        for (const auto &pr : inStockInstancesWithRemaining(pid)) {
+            pool << PoolItem{ pid, pr.first, pr.second };
+            available += pr.second;
+        }
+    };
+    addInstances(m_issuePartId);
+    if (available + 0.0005 < qty) {
+        QList<int> siblingIds;
+        RemoteQuery sq;
+        sq.prepare("SELECT id FROM t_parts WHERE part_no = :pn "
+                   "AND COALESCE(NULLIF(spec,''),'') = :sp "
+                   "AND COALESCE(supplier,'') = :sup AND id <> :pid ORDER BY id");
+        sq.bindValue(":pn", partNo);
+        sq.bindValue(":sp", specKey);
+        sq.bindValue(":sup", supplierKey);
+        sq.bindValue(":pid", m_issuePartId);
+        sq.exec();
+        while (sq.next()) siblingIds << sq.value(0).toInt();
+        for (int sid : siblingIds) {
+            if (available + 0.0005 >= qty) break;
+            addInstances(sid);
+        }
+    }
+    if (available + 0.0005 < qty) {
+        QMessageBox::warning(this, "库存不足",
+            QString("可出库数量（含同型号同供应商自动追加）为 %1，出库数量不能超过 %1")
+            .arg(fmtQty(available)));
+        return;
     }
 
-    // 更新目录表库存缓存
-    steps.append(RemoteDb::step(
-        "UPDATE t_parts SET stock = (SELECT COUNT(*) FROM t_part_instance "
-        "WHERE part_id = :pid AND status = '在库') WHERE id = :pid2",
-        QJsonObject{ { ":pid", m_issuePartId }, { ":pid2", m_issuePartId } }));
+    // 各建档的名称与售价（自动追加的兄弟建档用各自的名称/价格）
+    QMap<int, QPair<QString,double>> partInfo;
+    for (const PoolItem &pi : pool) {
+        if (partInfo.contains(pi.partId)) continue;
+        RemoteQuery pq;
+        pq.prepare("SELECT name, COALESCE(NULLIF(sale_price,0), purchase_price, 0) "
+                   "FROM t_parts WHERE id = :id");
+        pq.bindValue(":id", pi.partId);
+        pq.exec();
+        if (pq.next())
+            partInfo[pi.partId] = qMakePair(pq.value(0).toString(), pq.value(1).toDouble());
+        else
+            partInfo[pi.partId] = qMakePair(QString("备件%1").arg(pi.partId), 0.0);
+    }
 
-    // 记录流水(每个实例一条)
-    for (int instId : instanceIds) {
+    // 出库操作在一个事务内原子执行（经 4s-server）
+    QJsonArray steps;
+    double qtyLeft = qty;
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
+    QSet<int> touchedParts;   // 受影响的建档（含自动追加的兄弟建档）
+    for (const PoolItem &pi : pool) {
+        if (qtyLeft <= 0.0005) break;
+        double take = qMin(pi.remaining, qtyLeft);
+        if (take <= 0.0005) continue;
+        qtyLeft -= take;
+        touchedParts.insert(pi.partId);
+        const QString pname = partInfo[pi.partId].first;
+        const double pprice = partInfo[pi.partId].second;
+
+        // 1) 工单备件明细（自动追加的兄弟备件行：各自 part_id/名称正确，数量支持小数）
+        steps.append(RemoteDb::step(
+            "INSERT INTO t_workorder_item (workorder_id, part_id, part_instance_id, part_name, "
+            "quantity, unit_price, item_type) "
+            "VALUES (:oid, :pid, :iid, :name, :qty, :price, '材料')",
+            QJsonObject{
+                { ":oid", woid }, { ":pid", pi.partId }, { ":iid", pi.instanceId },
+                { ":name", pname }, { ":qty", take }, { ":price", pprice },
+            }));
+
+        // 2) 实例剩余量扣到 0 → 转已领出并绑定工单/领取人；部分消耗实例保持「在库」可继续使用
+        if (pi.remaining - take <= 0.0005) {
+            steps.append(RemoteDb::step(
+                "UPDATE t_part_instance SET status = '已领出', workorder_id = :wid, "
+                "recipient = :rec, updated_at = NOW() WHERE id = :iid",
+                QJsonObject{
+                    { ":wid", woid }, { ":rec", recipient }, { ":iid", pi.instanceId },
+                }));
+        }
+
+        // 3) 出库流水（带所属建档 part_id；数量/金额支持小数）
         steps.append(RemoteDb::step(
             "INSERT INTO t_inventory_log (part_id, part_instance_id, quantity, unit_price, total_price, "
             "operation_type, ref_order_no, operator_id, recipient) "
-            "VALUES (:pid, :iid, -1, :price, :total, '维修出库', :ref, :op, :rec)",
+            "VALUES (:pid, :iid, :qt, :price, :total, '维修出库', :ref, :op, :rec)",
             QJsonObject{
-                { ":pid", m_issuePartId }, { ":iid", instId },
-                { ":price", salePrice }, { ":total", -salePrice },
+                { ":pid", pi.partId }, { ":iid", pi.instanceId },
+                { ":qt", -take }, { ":price", pprice }, { ":total", -take * pprice },
                 { ":ref", orderNo }, { ":op", Session::instance().userId() },
                 { ":rec", recipient },
             }));
+
+        // 4) 去向记录
+        appendUsageLog(steps, QString::number(pi.instanceId),
+            QString("%1 出库 %2 ×%3 %4")
+            .arg(timestamp, orderNo, fmtQty(take), recipient));
     }
 
-    // 写入工单备件明细
-    if (woid > 0) {
-        for (int instId : instanceIds) {
-            steps.append(RemoteDb::step(
-                "INSERT INTO t_workorder_item (workorder_id, part_id, part_instance_id, part_name, "
-                "quantity, unit_price, item_type) "
-                "VALUES (:oid, :pid, :iid, :name, 1, :price, '材料')",
-                QJsonObject{
-                    { ":oid", woid }, { ":pid", m_issuePartId }, { ":iid", instId },
-                    { ":name", partName }, { ":price", salePrice },
-                }));
-        }
-    }
+    // 按受影响建档重算可出库库存
+    for (int pid : touchedParts)
+        recalcStock(steps, QString::number(pid));
 
     QJsonObject txn = RemoteDb::transaction(steps);
     if (!txn.value("ok").toBool()) {
@@ -1040,17 +1187,17 @@ void WarehousePage::onPartsIssue()
         return;
     }
 
-    // 同步更新维修历史：备件摘要
+    // 同步更新维修历史：备件摘要（数量支持小数）
     if (woid > 0) {
         QStringList psList;
         RemoteQuery psq;
-        psq.prepare("SELECT part_name, COUNT(*) FROM t_workorder_item "
+        psq.prepare("SELECT part_name, SUM(quantity) FROM t_workorder_item "
                     "WHERE workorder_id = :oid AND item_type = '材料' "
                     "GROUP BY part_name");
         psq.bindValue(":oid", woid);
         psq.exec();
         while (psq.next())
-            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(psq.value(1).toInt());
+            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(fmtQty(psq.value(1).toDouble()));
         RemoteQuery mu;
         mu.prepare("UPDATE t_maintenance_history SET parts_summary=:ps WHERE workorder_id=:oid");
         mu.bindValue(":ps", psList.isEmpty() ? QString() : psList.join(", "));
@@ -1059,8 +1206,8 @@ void WarehousePage::onPartsIssue()
     }
 
     QMessageBox::information(this, "出库成功",
-        QString("备件「%1」x %2 已出库\n工单: %3\n领取人: %4")
-        .arg(partName).arg(qty).arg(orderNo).arg(recipient));
+        QString("备件 %1 已出库\n工单: %2\n领取人: %3")
+        .arg(fmtQty(qty)).arg(orderNo).arg(recipient));
     onPartsSearch();
 }
 
@@ -1109,7 +1256,7 @@ void WarehousePage::onBillingSearchOrder()
     // 成本列：按绑定实例的进货价计算（t_part_instance.unit_purchase_price，
     //   无实例进货价时回退到 t_parts.purchase_price），代表该备件的实际进货成本
     RemoteQuery q2;
-    q2.prepare("SELECT wi.part_name AS '备件名称', COUNT(*) AS '数量', "
+    q2.prepare("SELECT wi.part_name AS '备件名称', ROUND(SUM(wi.quantity),3) AS '数量', "
                "wi.unit_price AS '单价', SUM(wi.subtotal) AS '小计', "
                "SUM(COALESCE(pi.unit_purchase_price, p.purchase_price, 0) * wi.quantity) AS '成本' "
                "FROM t_workorder_item wi "
@@ -1126,7 +1273,7 @@ void WarehousePage::onBillingSearchOrder()
     while (q2.next()) {
         m_billingTable->insertRow(r);
         QString name  = q2.value(0).toString();
-        int     qty   = q2.value(1).toInt();
+        double  qty   = q2.value(1).toDouble();
         double  price = q2.value(2).toDouble();
         double  sub   = q2.value(3).toDouble();
         double  cost  = q2.value(4).toDouble();
@@ -1136,7 +1283,7 @@ void WarehousePage::onBillingSearchOrder()
         nameItem->setData(Qt::UserRole, name);   // 存备件名称，保存时据此定位
         m_billingTable->setItem(r, 0, nameItem);
 
-        QTableWidgetItem *qtyItem = new QTableWidgetItem(QString::number(qty));
+        QTableWidgetItem *qtyItem = new QTableWidgetItem(fmtQty(qty));
         qtyItem->setFlags(qtyItem->flags() & ~Qt::ItemIsEditable);
         m_billingTable->setItem(r, 1, qtyItem);
 
@@ -1241,11 +1388,10 @@ void WarehousePage::saveBillingPriceEdits()
         // 3) 出库流水售价同步（出库报表读取 t_inventory_log.unit_price / total_price）
         const QString orderNo = m_billingOrderNo->text().trimmed();
         if (!orderNo.isEmpty()) {
-            q.prepare("UPDATE t_inventory_log SET unit_price = :p, total_price = :t "
+            q.prepare("UPDATE t_inventory_log SET unit_price = :p, total_price = quantity * :p "
                       "WHERE part_id = :pid AND ref_order_no = :ono "
                       "AND operation_type = '维修出库'");
-            q.bindValue(":p", newPrice);
-            q.bindValue(":t", -newPrice);   // 出库流水 total = -单价（数量为 -1）
+            q.bindValue(":p", newPrice);    // 出库流水 total = 数量(负数) × 新单价
             q.bindValue(":pid", partId);
             q.bindValue(":ono", orderNo);
             q.exec();
@@ -1302,10 +1448,13 @@ void WarehousePage::onCompareAndBill()
     q.exec();
     double matTotal = q.next() ? q.value(0).toDouble() : 0;
 
-    q.prepare("SELECT vehicle_id FROM t_workorder WHERE id = :id");
+    q.prepare("SELECT w.vehicle_id, COALESCE(v.plate_number,'') FROM t_workorder w "
+              "LEFT JOIN t_vehicle v ON v.id = w.vehicle_id WHERE w.id = :id");
     q.bindValue(":id", m_billingOrderId);
     q.exec();
-    int vehicleId = q.next() ? q.value(0).toInt() : -1;
+    int vehicleId = -1;
+    QString plate;
+    if (q.next()) { vehicleId = q.value(0).toInt(); plate = q.value(1).toString(); }
 
     // 先取已领出实例（事务外查询，事务内使用）
     RemoteQuery instQ;
@@ -1324,6 +1473,9 @@ void WarehousePage::onCompareAndBill()
         "WHERE id = :id AND status IN ('已派工','待提单')",
         QJsonObject{ { ":mat", matTotal }, { ":id", m_billingOrderId } }));
 
+    const QString orderNo = m_billingOrderNo->text().trimmed();
+    const QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
+    QSet<int> touchedParts;
     for (const auto &pair : instances) {
         // 已领出实例 → 已安装 并绑定车辆
         steps.append(RemoteDb::step(
@@ -1340,17 +1492,17 @@ void WarehousePage::onCompareAndBill()
             "VALUES (:pid, :iid, 1, '材料结算', :ref, :op, '材料审核提单')",
             QJsonObject{
                 { ":pid", pair.second }, { ":iid", pair.first },
-                { ":ref", m_billingOrderNo->text().trimmed() },
+                { ":ref", orderNo },
                 { ":op", Session::instance().userId() },
             }));
+        // 去向记录：安装
+        appendUsageLog(steps, QString::number(pair.first),
+            QString("%1 安装 %2 (%3)").arg(timestamp, plate.isEmpty() ? "-" : plate, orderNo));
+        touchedParts.insert(pair.second);
     }
-    // 更新库存缓存
-    for (const auto &pair : instances) {
-        steps.append(RemoteDb::step(
-            "UPDATE t_parts SET stock = (SELECT COUNT(*) FROM t_part_instance "
-            "WHERE part_id = :pid AND status = '在库') WHERE id = :pid2",
-            QJsonObject{ { ":pid", pair.second }, { ":pid2", pair.second } }));
-    }
+    // 按受影响建档重算可出库库存
+    for (int pid : touchedParts)
+        recalcStock(steps, QString::number(pid));
     // 记录交易历史
     if (vehicleId > 0) {
         steps.append(RemoteDb::step(
@@ -1374,13 +1526,13 @@ void WarehousePage::onCompareAndBill()
     {
         QStringList psList;
         RemoteQuery psq;
-        psq.prepare("SELECT part_name, COUNT(*) FROM t_workorder_item "
+        psq.prepare("SELECT part_name, SUM(quantity) FROM t_workorder_item "
                     "WHERE workorder_id = :oid AND item_type = '材料' "
                     "GROUP BY part_name");
         psq.bindValue(":oid", m_billingOrderId);
         psq.exec();
         while (psq.next())
-            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(psq.value(1).toInt());
+            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(fmtQty(psq.value(1).toDouble()));
         QString ps = psList.join(", ");
 
         RemoteQuery mu;
@@ -1692,6 +1844,7 @@ void WarehousePage::onPurchaseConfirm()
 bool WarehousePage::buildPurchaseInboundSteps(const PurchaseItem &it, QJsonArray &steps, int idx)
 {
     RemoteQuery q;
+    const QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
 
     // 检查是否已有该备件编号（事务外查询）
     int catalogId = 0;
@@ -1770,6 +1923,10 @@ bool WarehousePage::buildPurchaseInboundSteps(const PurchaseItem &it, QJsonArray
                 { ":price", it.cost }, { ":total", it.cost },
                 { ":op", Session::instance().userId() },
             }));
+
+        // 去向记录：入库
+        appendUsageLog(steps, "@" + cap,
+            QString("%1 入库 1 %2").arg(timestamp, it.supplier.isEmpty() ? "-" : it.supplier));
     }
 
     // 记录采购批次
@@ -1783,11 +1940,8 @@ bool WarehousePage::buildPurchaseInboundSteps(const PurchaseItem &it, QJsonArray
             { ":op", Session::instance().userId() },
         }));
 
-    // 更新库存缓存
-    steps.append(RemoteDb::step(
-        "UPDATE t_parts SET stock = (SELECT COUNT(*) FROM t_part_instance "
-        "WHERE part_id = :pid AND status = '在库') WHERE id = :pid2",
-        QJsonObject{ { ":pid", catalogRef }, { ":pid2", catalogRef } }));
+    // 更新库存缓存（可出库数量 = 在库实例剩余量之和）
+    recalcStock(steps, catalogRef);
 
     return true;
 }
@@ -1800,7 +1954,7 @@ void WarehousePage::onStockSearch()
 {
     QString keyword = m_stockKeyword->text().trimmed();
     QString extraCols = QString(
-        "COUNT(CASE WHEN i.status='在库' THEN 1 END) AS '在库数量', "
+        "COALESCE(p.stock, 0) AS '在库数量', "
         "COUNT(CASE WHEN i.status='已领出' THEN 1 END) AS '已领出', "
         "COUNT(CASE WHEN i.status='已安装' THEN 1 END) AS '已安装', "
         "COUNT(CASE WHEN i.status NOT IN ('已退货') THEN 1 END) AS '总数', "
@@ -1812,13 +1966,74 @@ void WarehousePage::onStockSearch()
         where = SqlUtil::likeConds({"p.part_no", "p.name", "p.spec", "p.supplier"}, ":kw");
 
     QString sql = mergedSelectSQL(extraCols, where,
-        "p.purchase_price, p.sale_price", "ORDER BY p.name LIMIT 500");
+        "p.purchase_price, p.sale_price, p.stock", "ORDER BY p.name LIMIT 500");
     RemoteQuery q;
     q.prepare(sql);
     if (!keyword.isEmpty())
         q.bindValue(":kw", SqlUtil::likePattern(keyword));
     q.exec();
     m_stockModel->setQuery(q);
+}
+
+// 查看备件去向：弹窗列出该备件各实例的 实例SN / 状态 / 剩余量 / 去向记录(usage_log)
+void WarehousePage::onViewUsageLog()
+{
+    QModelIndex cur = m_stockTable->currentIndex();
+    if (!cur.isValid()) {
+        QMessageBox::warning(this, "提示", "请先在库存查询列表中选择一个备件");
+        return;
+    }
+    int partId = m_stockModel->data(m_stockModel->index(cur.row(), 0)).toInt();
+    QString partName = m_stockModel->data(m_stockModel->index(cur.row(), 2)).toString();
+
+    RemoteQuery q;
+    q.prepare("SELECT i.instance_sn, i.status, "
+              "ROUND(1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi "
+              "WHERE wi.part_instance_id = i.id AND wi.item_type='材料'),0),3) AS rem, "
+              "COALESCE(i.usage_log,'') "
+              "FROM t_part_instance i WHERE i.part_id = :pid ORDER BY i.id ASC");
+    q.bindValue(":pid", partId);
+    q.exec();
+
+    QList<QStringList> rows;
+    while (q.next()) {
+        QString log = q.value(3).toString();
+        rows << QStringList{
+            q.value(0).toString(),
+            q.value(1).toString(),
+            fmtQty(q.value(2).toDouble()),
+            log.isEmpty() ? "（暂无记录）" : log,
+        };
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString("备件去向 — %1").arg(partName));
+    dlg.resize(760, 480);
+    QVBoxLayout *dl = new QVBoxLayout(&dlg);
+    QTableWidget *tbl = new QTableWidget(rows.size(), 4);
+    tbl->setHorizontalHeaderLabels({"实例SN", "状态", "剩余量", "使用去向记录"});
+    tbl->verticalHeader()->setVisible(false);
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->setAlternatingRowColors(true);
+    tbl->setStyleSheet("QHeaderView::section{background:#34495e;color:#fff;padding:5px;}");
+    for (int r = 0; r < rows.size(); ++r)
+        for (int c = 0; c < 4; ++c)
+            tbl->setItem(r, c, new QTableWidgetItem(rows[r][c]));
+    tbl->setColumnWidth(0, 130);
+    tbl->setColumnWidth(1, 70);
+    tbl->setColumnWidth(2, 70);
+    tbl->setColumnWidth(3, 440);
+    dl->addWidget(tbl, 1);
+    QPushButton *closeBtn = new QPushButton("关闭");
+    closeBtn->setStyleSheet(S_BTNGH);
+    QHBoxLayout *bb = new QHBoxLayout;
+    bb->addStretch();
+    bb->addWidget(closeBtn);
+    dl->addLayout(bb);
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
 }
 
 // ============================================================
@@ -1837,29 +2052,28 @@ void WarehousePage::onReturnSearch()
     QString keyword = m_retPartSearch->text().trimmed();
     RemoteQuery q;
 
-    // 构建 WHERE 条件：仅锁定工单绑定的已领出实例（必选），再叠加模糊关键字
+    // 构建 WHERE 条件：仅锁定工单的已出库备件明细（必选），再叠加模糊关键字
     QStringList conditions;
-    conditions << QString("i.workorder_id = %1").arg(m_retLockedWorkOrderId);
+    conditions << QString("wi.workorder_id = %1").arg(m_retLockedWorkOrderId);
     if (!keyword.isEmpty()) {
         conditions << SqlUtil::likeConds({"p.part_no", "p.name", "p.supplier", "p.spec"}, ":kw");
     }
 
     QString whereClause = "WHERE " + conditions.join(" AND ");
 
-    // 退库仅针对「已派工」工单：只显示绑定在已派工农单上的已领出实例，
-    // 待提单/已提单/已结算工单的备件已进入流程，不允许退回。
+    // 退库仅针对「已派工」工单：待提单/已提单/已结算工单的备件已进入流程，不允许退回。
+    // 可退数量 = 该工单该备件未退库明细数量合计（出库支持小数后按数量求和）。
     QString sql = QString(
         "SELECT p.id AS catalog_id, p.part_no AS '备件编号', p.name AS '备件名称', "
         "COALESCE(NULLIF(p.spec,''), CONCAT('(无型号-', p.part_no, ')')) AS '规格型号', "
         "COALESCE(p.supplier,'') AS '供应商', "
         "COALESCE(p.applicable_model,'') AS '适用车型', "
-        "COUNT(i.id) AS '可退数量', "
+        "ROUND(SUM(wi.quantity),3) AS '可退数量', "
         "COALESCE(p.sale_price, (SELECT unit_sale_price FROM t_part_instance "
         " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
         "FROM t_parts p "
-        "INNER JOIN t_part_instance i ON i.part_id = p.id AND i.status = '已领出' "
-        "AND i.workorder_id IS NOT NULL "
-        "INNER JOIN t_workorder w ON w.id = i.workorder_id AND w.status = '已派工' "
+        "INNER JOIN t_workorder_item wi ON wi.part_id = p.id AND wi.item_type = '材料' "
+        "INNER JOIN t_workorder w ON w.id = wi.workorder_id AND w.status = '已派工' "
         "%1 "
         "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.sale_price "
         "ORDER BY p.name LIMIT 200")
@@ -1879,40 +2093,44 @@ void WarehousePage::onReturnConfirm()
         QMessageBox::warning(this, "提示", "请先选择备件");
         return;
     }
-    int qty = m_retQty->value();
+    double qty = m_retQty->value();
+    if (qty <= 0.0005) {
+        QMessageBox::warning(this, "提示", "退库数量必须大于 0");
+        return;
+    }
     QString orderNo = m_retOrderNo->text().trimmed();
 
-    // 获取可退库的实例：仅已领出、且绑定在「已派工」工单上的实例
-    QList<int> instanceIds;
-    QList<int> affectedWorkOrders;   // 退库涉及的工单ID（用于重算备件摘要）
+    // 获取可退库的明细行：该备件在「已派工」工单上的未退库材料明细（可退上限 = 数量合计）
+    QList<QPair<int,int>> items;    // (明细ID, 实例ID)
+    QList<double> itemQtys;         // 各明细当前数量
+    QList<int> affectedWorkOrders;  // 退库涉及的工单ID（用于重算备件摘要）
     RemoteQuery q;
 
-    if (m_retLockedWorkOrderId > 0) {
-        // 已锁定工单：精确匹配该工单的已领出实例（不用模糊 LIKE，避免退错相似单号的工单）
-        q.prepare("SELECT id, workorder_id FROM t_part_instance "
-                  "WHERE part_id = :pid AND status = '已领出' "
-                  "AND workorder_id = :wid LIMIT :lim");
-        q.bindValue(":wid", m_retLockedWorkOrderId);
-    } else {
-        // 未锁定工单：仅退「已派工」工单绑定的已领出实例
-        q.prepare("SELECT i.id, i.workorder_id FROM t_part_instance i "
-                  "JOIN t_workorder w ON w.id = i.workorder_id AND w.status = '已派工' "
-                  "WHERE i.part_id = :pid AND i.status = '已领出' "
-                  "LIMIT :lim");
-    }
+    QString sql = "SELECT wi.id, wi.part_instance_id, wi.quantity, wi.workorder_id "
+                  "FROM t_workorder_item wi "
+                  "JOIN t_workorder w ON w.id = wi.workorder_id AND w.status = '已派工' "
+                  "WHERE wi.part_id = :pid AND wi.item_type = '材料' ";
+    if (m_retLockedWorkOrderId > 0)
+        sql += "AND wi.workorder_id = :wid ";
+    sql += "ORDER BY wi.id ASC";
+    q.prepare(sql);
     q.bindValue(":pid", m_retPartId);
-    q.bindValue(":lim", qty);
+    if (m_retLockedWorkOrderId > 0) q.bindValue(":wid", m_retLockedWorkOrderId);
     q.exec();
+    double available = 0;
     while (q.next()) {
-        instanceIds << q.value(0).toInt();
-        int woid = q.value(1).toInt();
+        items << QPair<int,int>(q.value(0).toInt(), q.value(1).toInt());
+        double qq = q.value(2).toDouble();
+        itemQtys << qq;
+        available += qq;
+        int woid = q.value(3).toInt();
         if (woid > 0 && !affectedWorkOrders.contains(woid))
             affectedWorkOrders << woid;
     }
 
-    if (instanceIds.size() < qty) {
+    if (available + 0.0005 < qty) {
         QMessageBox::warning(this, "退库失败",
-            QString("可退库的备件仅 %1 件，退库数量不能超过 %1").arg(instanceIds.size()));
+            QString("该备件当前可退 %1，退库数量不能超过 %1").arg(fmtQty(available)));
         return;
     }
 
@@ -1925,45 +2143,57 @@ void WarehousePage::onReturnConfirm()
 
     // 退库操作在一个事务内原子执行（经 4s-server）
     QJsonArray steps;
-    for (int instId : instanceIds) {
-        // 更新实例状态为在库，清除绑定
+    double qtyLeft = qty;
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
+    for (int i = 0; i < items.size() && qtyLeft > 0.0005; i++) {
+        double itemQty = itemQtys[i];
+        if (itemQty <= 0.0005) continue;
+        double take = qMin(itemQty, qtyLeft);
+        qtyLeft -= take;
+        int itemId = items[i].first;
+        int instId = items[i].second;
+
+        // 1) 明细数量扣减（扣到 0 则删除该行）
+        if (itemQty - take <= 0.0005) {
+            steps.append(RemoteDb::step(
+                "DELETE FROM t_workorder_item WHERE id = :iid",
+                QJsonObject{ { ":iid", itemId } }));
+        } else {
+            steps.append(RemoteDb::step(
+                "UPDATE t_workorder_item SET quantity = quantity - :qt WHERE id = :iid",
+                QJsonObject{ { ":qt", take }, { ":iid", itemId } }));
+        }
+
+        // 2) 实例剩余量恢复 >0 → 回「在库」并清绑定；仍为 0 → 保持「已领出」
         steps.append(RemoteDb::step(
-            "UPDATE t_part_instance SET status = '在库', vehicle_id = NULL, "
-            "workorder_id = NULL, recipient = NULL, updated_at = NOW() "
-            "WHERE id = :iid",
+            "UPDATE t_part_instance i SET "
+            "status = CASE WHEN (1 - COALESCE((SELECT SUM(wi.quantity) "
+            "              FROM t_workorder_item wi WHERE wi.part_instance_id = i.id "
+            "              AND wi.item_type='材料'),0)) > 0.0005 "
+            "         THEN '在库' ELSE '已领出' END, "
+            "workorder_id = NULL, vehicle_id = NULL, recipient = NULL, updated_at = NOW() "
+            "WHERE i.id = :iid",
             QJsonObject{ { ":iid", instId } }));
 
-        // 记录流水
+        // 3) 去向记录
+        appendUsageLog(steps, QString::number(instId),
+            QString("%1 退库 %2 ×%3").arg(timestamp, orderNo, fmtQty(take)));
+
+        // 4) 流水（退回数量为正）
         steps.append(RemoteDb::step(
             "INSERT INTO t_inventory_log (part_id, part_instance_id, quantity, unit_price, total_price, "
             "operation_type, ref_order_no, operator_id, remark) "
-            "VALUES (:pid, :iid, 1, :price, :total, '备件退库', :ref, :op, '备件退库')",
+            "VALUES (:pid, :iid, :qt, :price, :total, '备件退库', :ref, :op, '备件退库')",
             QJsonObject{
                 { ":pid", m_retPartId }, { ":iid", instId },
-                { ":price", costPrice }, { ":total", costPrice },
+                { ":qt", take }, { ":price", costPrice }, { ":total", take * costPrice },
                 { ":ref", RemoteDb::v(orderNo.isEmpty() ? QString() : orderNo) },
                 { ":op", Session::instance().userId() },
             }));
     }
 
-    // 清除工单备件明细中已退库的实例行：否则材料费/备件摘要仍会把已退库备件计入统计
-    if (!instanceIds.isEmpty()) {
-        QStringList phs;
-        QJsonObject delParams;
-        for (int i = 0; i < instanceIds.size(); ++i) {
-            phs << QString(":iid%1").arg(i);
-            delParams[QString(":iid%1").arg(i)] = instanceIds[i];
-        }
-        steps.append(RemoteDb::step(
-            "DELETE FROM t_workorder_item WHERE part_instance_id IN (" + phs.join(",") + ")",
-            delParams));
-    }
-
-    // 更新库存缓存
-    steps.append(RemoteDb::step(
-        "UPDATE t_parts SET stock = (SELECT COUNT(*) FROM t_part_instance "
-        "WHERE part_id = :pid AND status = '在库') WHERE id = :pid2",
-        QJsonObject{ { ":pid", m_retPartId }, { ":pid2", m_retPartId } }));
+    // 更新库存缓存（可出库数量）
+    recalcStock(steps, QString::number(m_retPartId));
 
     QJsonObject txn = RemoteDb::transaction(steps);
     if (!txn.value("ok").toBool()) {
@@ -1975,12 +2205,12 @@ void WarehousePage::onReturnConfirm()
     for (int woid : affectedWorkOrders) {
         QStringList psList;
         RemoteQuery psq;
-        psq.prepare("SELECT part_name, COUNT(*) FROM t_workorder_item "
+        psq.prepare("SELECT part_name, SUM(quantity) FROM t_workorder_item "
                     "WHERE workorder_id=:oid AND item_type='材料' GROUP BY part_name");
         psq.bindValue(":oid", woid);
         psq.exec();
         while (psq.next())
-            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(psq.value(1).toInt());
+            psList << QString("%1x%2").arg(psq.value(0).toString()).arg(fmtQty(psq.value(1).toDouble()));
         RemoteQuery mu;
         mu.prepare("UPDATE t_maintenance_history SET parts_summary=:ps WHERE workorder_id=:oid");
         mu.bindValue(":ps", psList.isEmpty() ? QString() : psList.join(", "));
@@ -1989,7 +2219,7 @@ void WarehousePage::onReturnConfirm()
     }
 
     QMessageBox::information(this, "退库成功",
-        QString("备件「%1」x %2 已退回库房").arg(partName).arg(qty));
+        QString("备件「%1」× %2 已退回库房").arg(partName).arg(fmtQty(qty)));
     onReturnSearch();
 }
 
@@ -2018,6 +2248,8 @@ void WarehousePage::onPurchaseReturnSearch()
         " WHERE part_id=p.id AND unit_sale_price IS NOT NULL LIMIT 1)) AS '销售价' "
         "FROM t_parts p "
         "INNER JOIN t_part_instance i ON i.part_id = p.id AND i.status = '在库' "
+        "AND (1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi "
+        "     WHERE wi.part_instance_id = i.id AND wi.item_type='材料'),0)) >= 0.9995 "
         "%1 "
         "GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier, p.applicable_model, p.purchase_price, p.sale_price "
         "ORDER BY p.name LIMIT 200")
@@ -2038,25 +2270,47 @@ void WarehousePage::onPurchaseReturnConfirm()
         return;
     }
     int qty = m_purRetQty->value();
-
-    // 获取在库的实例
-    QList<int> instanceIds = getInStockInstanceIds(m_purRetPartId, qty);
-    if (instanceIds.size() < qty) {
-        QMessageBox::warning(this, "退货失败",
-            QString("当前仅有 %1 件在库可退，退货数量不能超过 %1").arg(instanceIds.size()));
+    if (qty <= 0) {
+        QMessageBox::warning(this, "提示", "退货数量必须大于 0");
         return;
     }
 
-    // 获取备件信息
+    // 获取在库且从未使用（剩余量==1）的实例（采购退货仅退整件，部分消耗的实例不可退）
+    QList<int> instanceIds;
     RemoteQuery q;
-    q.prepare("SELECT name, COALESCE(purchase_price, 0) FROM t_parts WHERE id = :id");
+    q.prepare("SELECT i.id FROM t_part_instance i "
+              "WHERE i.part_id = :pid AND i.status = '在库' "
+              "AND (1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi "
+              "     WHERE wi.part_instance_id = i.id AND wi.item_type='材料'),0)) >= 0.9995 "
+              "ORDER BY i.id ASC LIMIT :lim");
+    q.bindValue(":pid", m_purRetPartId);
+    q.bindValue(":lim", qty);
+    q.exec();
+    while (q.next()) instanceIds << q.value(0).toInt();
+
+    if (instanceIds.size() < qty) {
+        QMessageBox::warning(this, "退货失败",
+            QString("当前仅有 %1 件未使用在库可退，退货数量不能超过 %1").arg(instanceIds.size()));
+        return;
+    }
+
+    // 获取备件信息（含供应商，用于去向记录）
+    q.prepare("SELECT name, COALESCE(purchase_price, 0), COALESCE(supplier,'') "
+              "FROM t_parts WHERE id = :id");
     q.bindValue(":id", m_purRetPartId);
     q.exec();
-    QString partName = q.next() ? q.value(0).toString() : "未知";
-    double costPrice = q.value(1).toDouble();
+    QString partName = "未知";
+    QString supplier;
+    double costPrice = 0;
+    if (q.next()) {
+        partName = q.value(0).toString();
+        costPrice = q.value(1).toDouble();
+        supplier = q.value(2).toString();
+    }
 
     // 采购退货在一个事务内原子执行（经 4s-server）
     QJsonArray steps;
+    const QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
     for (int instId : instanceIds) {
         // 更新实例状态为已退货
         steps.append(RemoteDb::step(
@@ -2075,13 +2329,14 @@ void WarehousePage::onPurchaseReturnConfirm()
                 { ":price", costPrice }, { ":total", -costPrice },
                 { ":op", Session::instance().userId() },
             }));
+
+        // 去向记录：退货
+        appendUsageLog(steps, QString::number(instId),
+            QString("%1 退货 %2 ×1").arg(timestamp, supplier.isEmpty() ? "-" : supplier));
     }
 
-    // 更新库存缓存
-    steps.append(RemoteDb::step(
-        "UPDATE t_parts SET stock = (SELECT COUNT(*) FROM t_part_instance "
-        "WHERE part_id = :pid AND status = '在库') WHERE id = :pid2",
-        QJsonObject{ { ":pid", m_purRetPartId }, { ":pid2", m_purRetPartId } }));
+    // 更新库存缓存（可出库数量）
+    recalcStock(steps, QString::number(m_purRetPartId));
 
     QJsonObject txn = RemoteDb::transaction(steps);
     if (!txn.value("ok").toBool()) {

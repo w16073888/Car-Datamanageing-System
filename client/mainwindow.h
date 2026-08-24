@@ -23,6 +23,8 @@
 #include "pages/FrontDeskPage.h"
 #include "pages/WarehousePage.h"
 
+class QDialog;
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -108,6 +110,10 @@ private:
     QLabel *m_statusLabel;
     QLabel *m_orderNoLabel;
     int     m_currentPageIndex;
+
+    // 前台/库房工作台非模态窗口（关闭即销毁，重建时置空）
+    QDialog *m_frontDeskDlg = nullptr;
+    QDialog *m_warehouseDlg = nullptr;
 };
 
 #endif // MAINWINDOW_H

@@ -78,9 +78,15 @@ bool FrontDeskPage::eventFilter(QObject *obj, QEvent *event)
             return true;
         }
 
-        // 左右方向键：光标在文本框边界时跳转到相邻文本输入框，
-        // 否则保留文本框内移动光标的原生行为（非 QLineEdit 一律原生）。
+        // 左右方向键：报修费用框（QDoubleSpinBox）直接按"先左右后上下"跳转（内容↔费用）；
+        // 文本输入框则光标在边界时才跳转，否则保留光标移动原生行为。
+        bool isRepairFee = false;
+        if (m_state == STATE_DISPATCH) {
+            for (const auto &r : m_allRows)
+                if (r.fee == obj) { isRepairFee = true; break; }
+        }
         if (key == Qt::Key_Right) {
+            if (isRepairFee) { navNext(obj); return true; }
             auto *e = qobject_cast<QLineEdit*>(obj);
             if (e && e->selectedText().isEmpty() && e->cursorPosition() >= e->text().length()) {
                 navNext(obj);
@@ -89,6 +95,7 @@ bool FrontDeskPage::eventFilter(QObject *obj, QEvent *event)
             return false;
         }
         if (key == Qt::Key_Left) {
+            if (isRepairFee) { navPrev(obj); return true; }
             auto *e = qobject_cast<QLineEdit*>(obj);
             if (e && e->selectedText().isEmpty() && e->cursorPosition() <= 0) {
                 navPrev(obj);
@@ -190,7 +197,11 @@ void FrontDeskPage::navNext(QObject *obj)
     QList<QWidget*> chain = navFullChain();
     const int idx = chain.indexOf(cur);
     if (idx >= 0) {
-        focusInput(chain[(idx + 1) % chain.size()]);
+        // 跳过被隐藏的输入区（如编辑态隐藏的备件搜索/定价）
+        for (int i = idx + 1; i <= idx + chain.size(); i++) {
+            QWidget *w = chain[i % chain.size()];
+            if (w && w->isVisible()) { focusInput(w); return; }
+        }
         return;
     }
     focusNextPrevChild(true);   // 链外字段：保持原 tab 顺序
@@ -200,7 +211,8 @@ void FrontDeskPage::navPrev(QObject *obj)
 {
     QWidget *cur = qobject_cast<QWidget*>(obj);
     if (!cur) { focusNextPrevChild(false); return; }
-    QList<QWidget*> chain = navTextChain();
+    // 报修区用完整链（内容+费用，"先左右后上下"的反向）；其它状态仍用文本链
+    QList<QWidget*> chain = (m_state == STATE_DISPATCH) ? navFullChain() : navTextChain();
     const int idx = chain.indexOf(cur);
     if (idx >= 0) {
         focusInput(chain[(idx - 1 + chain.size()) % chain.size()]);
@@ -217,23 +229,30 @@ void FrontDeskPage::navNextRepairContent(ItemRow *row)
         focusInput(row->fee);
         return;
     }
-    // 空行：跳到下一个内容输入框（下一板块），最后一行则跳到备件搜索区
+    // 空行：跳到下一个内容输入框（下一板块），最后一行则跳到备件搜索区（编辑态已隐藏则停在原地）
     QList<QWidget*> chain = navFullChain();
     const int idx = chain.indexOf(row->content);
     if (idx >= 0) {
         for (int i = idx + 1; i < chain.size(); i++)
-            if (qobject_cast<QLineEdit*>(chain[i])) { focusInput(chain[i]); return; }
+            if (qobject_cast<QLineEdit*>(chain[i]) && chain[i]->isVisible()) { focusInput(chain[i]); return; }
     }
-    focusInput(m_partSearch);
+    if (m_partSearch->isVisible()) focusInput(m_partSearch);
 }
 
 void FrontDeskPage::navNextRepairFee(ItemRow *row)
 {
-    // 下一行内容（若自动新增了空行，按类型顺序自然排在下一位）；最后一行则备件搜索区
+    // 下一行内容（若自动新增了空行，按类型顺序自然排在下一位）；最后一行则备件搜索区；
+    // 编辑态备件搜索/定价隐藏时跳过并回绕到首行内容，保证"先左右后上下"连续跳转。
     QList<QWidget*> chain = navFullChain();
     const int idx = chain.indexOf(row->fee);
-    if (idx >= 0 && idx + 1 < chain.size()) { focusInput(chain[idx + 1]); return; }
-    focusInput(m_partSearch);
+    if (idx >= 0) {
+        for (int i = idx + 1; i <= idx + chain.size(); i++) {
+            QWidget *w = chain[i % chain.size()];
+            if (w && w->isVisible() && qobject_cast<QLineEdit*>(w)) { focusInput(w); return; }
+        }
+        return;
+    }
+    if (m_partSearch->isVisible()) focusInput(m_partSearch);
 }
 
 // ============================================================
@@ -556,9 +575,9 @@ void FrontDeskPage::setupUI()
         QVBoxLayout *rightSide = new QVBoxLayout;
         rightSide->setSpacing(3);
 
-        QLabel *partTitle = new QLabel("预计备件选择");
-        partTitle->setStyleSheet("font-weight:bold;color:#2c3e50;");
-        rightSide->addWidget(partTitle);
+        m_lblPartTitle = new QLabel("预计备件选择");
+        m_lblPartTitle->setStyleSheet("font-weight:bold;color:#2c3e50;");
+        rightSide->addWidget(m_lblPartTitle);
 
         // 备件搜索（模糊搜索+下拉）
         m_partSearch = new QLineEdit;
@@ -568,7 +587,8 @@ void FrontDeskPage::setupUI()
         // 定价输入
         QHBoxLayout *priceRow = new QHBoxLayout;
         priceRow->setSpacing(3);
-        priceRow->addWidget(new QLabel("定价:"));
+        m_lblPartPriceLabel = new QLabel("定价:");
+        priceRow->addWidget(m_lblPartPriceLabel);
         m_partPrice = new QLineEdit;
         m_partPrice->setPlaceholderText("手动输入价格");
         m_partPrice->setFixedWidth(80);
@@ -602,17 +622,17 @@ void FrontDeskPage::setupUI()
         m_btnAddPart->setMinimumHeight(26);
         partBtnRow->addWidget(m_btnAddPart);
 
-        QPushButton *btnRemovePart = new QPushButton("删除选中备件");
-        btnRemovePart->setStyleSheet(S_BTNGH);
-        btnRemovePart->setMinimumHeight(26);
-        connect(btnRemovePart, &QPushButton::clicked, [this]() {
+        m_btnRemovePart = new QPushButton("删除选中备件");
+        m_btnRemovePart->setStyleSheet(S_BTNGH);
+        m_btnRemovePart->setMinimumHeight(26);
+        connect(m_btnRemovePart, &QPushButton::clicked, [this]() {
             int row = m_partTable->currentRow();
             if (row < 0) return;
             m_partTable->removeRow(row);
             m_selectedParts.removeAt(row);
             onFeeChanged();
         });
-        partBtnRow->addWidget(btnRemovePart);
+        partBtnRow->addWidget(m_btnRemovePart);
         rightSide->addLayout(partBtnRow);
 
         repairMain->addLayout(rightSide, 1);
@@ -667,6 +687,10 @@ void FrontDeskPage::setupUI()
         m_btnCreate = new QPushButton("保存并派工");
         m_btnCreate->setStyleSheet(S_BTN1H);
         m_btnCreate->setMinimumHeight(28); m_btnPrint->setMinimumHeight(28);
+        m_btnDeleteOrder = new QPushButton("删除工单");
+        m_btnDeleteOrder->setStyleSheet("QPushButton{padding:4px 10px;border:none;border-radius:3px;background:#c0392b;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#a93226;}QPushButton:disabled{background:#bdc3c7;color:#7f8c8d;}");
+        m_btnDeleteOrder->setMinimumHeight(28);
+        m_btnDeleteOrder->setVisible(false);   // 仅编辑已有工单状态显示
 
         QPushButton *btnPrintQuote = new QPushButton("打印报价单(客户)");
         btnPrintQuote->setStyleSheet("QPushButton{padding:4px 10px;border:none;border-radius:3px;background:#16a085;color:#fff;font-size:12px;font-weight:bold;}QPushButton:hover{background:#138d75;}");
@@ -683,6 +707,7 @@ void FrontDeskPage::setupUI()
         br->addWidget(btnExportQuotePdf);
         br->addWidget(m_btnPrint);
         br->addWidget(m_btnCreate);
+        br->addWidget(m_btnDeleteOrder);
         fg->addLayout(br);
     }
     cl->addWidget(m_feeGroup);
@@ -693,6 +718,7 @@ void FrontDeskPage::setupUI()
     // ==================== 信号 ====================
     connect(m_btnLock,   &QPushButton::clicked, this, &FrontDeskPage::onLockVehicle);
     connect(m_btnCreate, &QPushButton::clicked, this, &FrontDeskPage::onCreateWorkOrder);
+    connect(m_btnDeleteOrder, &QPushButton::clicked, this, &FrontDeskPage::onDeleteWorkOrder);
     connect(m_btnPrint,  &QPushButton::clicked, this, &FrontDeskPage::onPrintWorkOrder);
     connect(m_btnMaintenanceHistory, &QPushButton::clicked, this, &FrontDeskPage::onShowMaintenanceHistory);
     connect(m_btnSaveVehicleInfo, &QPushButton::clicked, this, &FrontDeskPage::onSaveVehicleInfo);
@@ -757,20 +783,33 @@ void FrontDeskPage::addRepairRow(const QString &type)
 
     // 内容编辑完成 → 如果同类最后一行有内容，自动新增同类型空行（无行数上限，多列自动换列）
     QString typeCapture = type;
-    connect(row.content, &QLineEdit::editingFinished, this, [this, typeCapture]() {
+    const int thisIndex = m_allRows.size();   // 本行在 m_allRows 中的下标（追加前）
+    connect(row.content, &QLineEdit::editingFinished, this, [this, typeCapture, thisIndex]() {
         // 获取该类型最后一行，如果它有内容则自动新增空行（无上限，由多列布局自动换列）
-        ItemRow *lastOfType = nullptr;
+        int lastIdx = -1;
         for (int i = m_allRows.size() - 1; i >= 0; i--) {
-            if (m_allRows[i].type == typeCapture) {
-                lastOfType = &m_allRows[i];
-                break;
+            if (m_allRows[i].type == typeCapture) { lastIdx = i; break; }
+        }
+        if (lastIdx < 0) return;
+        bool lastHasContent = !m_allRows[lastIdx].content->text().trimmed().isEmpty()
+                           || m_allRows[lastIdx].fee->value() > 0;
+        if (lastHasContent) {
+            // 触发行本身是否就是同类型最后一行：只有"最后一行"触发时，新行才紧跟在焦点后
+            const bool firingIsLast = (lastIdx == thisIndex);
+            addRepairRow(typeCapture);
+            if (firingIsLast) {
+                // 重建布局可能把焦点弄丢（focusWidget()==null）：补回本行费用框
+                // （"先左右后上下"：内容→费用；新行已在其下，费用后再回车/右键到新行内容）。
+                // 焦点正常落在费用框时不动它；用户点击了其它区域也不打断。
+                const int thisRowIdx = thisIndex;
+                QTimer::singleShot(0, this, [this, thisRowIdx]() {
+                    QWidget *fw = focusWidget();
+                    if (!fw && thisRowIdx >= 0 && thisRowIdx < m_allRows.size()
+                        && m_allRows[thisRowIdx].fee)
+                        focusInput(m_allRows[thisRowIdx].fee);
+                });
             }
         }
-        if (!lastOfType) return;
-        bool lastHasContent = !lastOfType->content->text().trimmed().isEmpty()
-                           || lastOfType->fee->value() > 0;
-        if (lastHasContent)
-            addRepairRow(typeCapture);
     });
 
     // 安装回车导航事件过滤器
@@ -912,6 +951,10 @@ QString FrontDeskPage::generateOrderNo()
 void FrontDeskPage::resetForm()
 {
     m_lockedVid = 0; m_foundVid = 0;
+    m_mergeTargetWoid = 0; m_mergeTargetOrderNo.clear();
+    m_editMode = false; m_editMatFee = 0;
+    m_btnDeleteOrder->setVisible(false);
+    setPartsAreaMode(false);
     m_sPlate->clear(); m_sVin->clear(); m_sEngine->clear();
     m_sOwner->clear(); m_sPhone->clear(); m_sModel->clear();
     clearGhost();
@@ -985,9 +1028,11 @@ double FrontDeskPage::calcTotalFee()
 
 void FrontDeskPage::onFeeChanged()
 {
+    // 编辑已有工单时材料费来自已出库备件（t_workorder_item），不使用本次预计部件列表
+    double mat = m_editMode ? m_editMatFee : calcPartTotal();
     m_lblFormulaFee->setText(QString("¥ %1").arg(calcRepairFee(),0,'f',2));
-    m_lblMatFee->setText(QString("¥ %1").arg(calcPartTotal(),0,'f',2));
-    m_lblTotal->setText(QString("¥ %1").arg(calcTotalFee(),0,'f',2));
+    m_lblMatFee->setText(QString("¥ %1").arg(mat,0,'f',2));
+    m_lblTotal->setText(QString("¥ %1").arg(calcRepairFee() + mat + m_spinOther->value() + m_spinMgmt->value(),0,'f',2));
 }
 
 // ============================================================
@@ -1093,6 +1138,14 @@ void FrontDeskPage::onVehicleSearchFinalize()
 
     resetNewCarForm();        // 保证每次打开新车录入时全部字段清空
     refreshCarModelList();
+    // 无匹配 → 把搜索区已输入的信息自动填入新车录入对应字段
+    m_nPlate->setText(m_sPlate->text().trimmed());
+    m_nVin->setText(m_sVin->text().trimmed());
+    m_nEngine->setText(m_sEngine->text().trimmed());
+    m_nOwner->setText(m_sOwner->text().trimmed());
+    m_nPhone->setText(m_sPhone->text().trimmed());
+    if (!m_sModel->text().trimmed().isEmpty())
+        m_nModel->setEditText(m_sModel->text().trimmed());
     setState(STATE_NEW_CAR);
 }
 
@@ -1116,9 +1169,16 @@ void FrontDeskPage::lockVehicle(int vid)
     fillVehicleData(vid);
     m_lblStatus->setText("已锁定"); m_lblStatus->setStyleSheet("color:#27ae60;font-weight:bold;");
     m_btnMaintenanceHistory->setVisible(true);
-    m_editOrderNo->setText(generateOrderNo());
+    if (m_mergeTargetWoid > 0) {
+        // 编辑已有工单：工单号与全部信息由 loadWorkOrderForEdit 回填
+        m_editOrderNo->setText(m_mergeTargetOrderNo);
+    } else {
+        m_editOrderNo->setText(generateOrderNo());
+    }
     emit orderNoChanged(m_editOrderNo->text());
     setState(STATE_DISPATCH);
+    if (m_mergeTargetWoid > 0)
+        loadWorkOrderForEdit(m_mergeTargetWoid);
 }
 
 // ============================================================
@@ -1188,6 +1248,9 @@ void FrontDeskPage::onClearVehicle()
     m_lockedVid = 0; m_foundVid = 0; m_lastVehicleCount = 0;
     m_vehicleCompleter->hideDropdown();
     m_mergeTargetWoid = 0; m_mergeTargetOrderNo.clear();
+    m_editMode = false; m_editMatFee = 0;
+    m_btnDeleteOrder->setVisible(false);
+    setPartsAreaMode(false);
     m_sPlate->clear(); m_sVin->clear(); m_sEngine->clear();
     m_sOwner->clear(); m_sPhone->clear(); m_sModel->clear();
     clearGhost();
@@ -1208,8 +1271,8 @@ void FrontDeskPage::clearGhost()
 
 // ============================================================
 // 锁定前检查：该车辆是否存在在派工中的工单（只查本车、状态=已派工）
-// 存在则弹窗让使用者选择"叠加到已有工单 / 创建新工单 / 取消"，并把选择
-// 记录到 m_mergeTargetWoid，供保存并派工时直接执行（不再二次询问）。
+// 存在则弹窗让使用者选择"编辑原有工单 / 创建新工单 / 取消"，并把选择
+// 记录到 m_mergeTargetWoid（编辑目标工单），供保存并派工时直接执行（不再二次询问）。
 // 返回 true=继续锁定，false=取消锁定
 // ============================================================
 bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
@@ -1220,7 +1283,7 @@ bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
               "ORDER BY created_at DESC");
     q.bindValue(":vid", vehicleId);
     if (!q.exec()) {
-        // 查询失败时不阻断锁定，也不叠加
+        // 查询失败时不阻断锁定，也不进入编辑模式
         m_mergeTargetWoid = 0;
         m_mergeTargetOrderNo.clear();
         return true;
@@ -1243,14 +1306,14 @@ bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
     QString msg;
     if (pending.size() == 1)
         msg = QString("该车辆已有在派工中的工单 %1。\n"
-                      "是否将本次维修项目叠加到该工单？\n\n"
-                      "选择「叠加到已有工单」：保存并派工时不另建工单，直接并入该工单；\n"
+                      "是否编辑该工单？\n\n"
+                      "选择「编辑原有工单」：派工界面显示该工单全部信息，保存时整体更新（不另建工单）；\n"
                       "选择「创建新工单」：另建一份新工单。")
                   .arg(latestOrderNo);
     else
         msg = QString("该车辆存在 %1 个在派工中的工单，最新为 %2。\n"
-                      "是否将本次维修项目叠加到最新工单？\n\n"
-                      "选择「叠加到已有工单」：保存并派工时不另建工单，直接并入该工单；\n"
+                      "是否编辑最新工单？\n\n"
+                      "选择「编辑原有工单」：派工界面显示该工单全部信息，保存时整体更新（不另建工单）；\n"
                       "选择「创建新工单」：另建一份新工单。")
                   .arg(pending.size()).arg(latestOrderNo);
 
@@ -1258,7 +1321,7 @@ bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
     box.setWindowTitle("派工确认");
     box.setIcon(QMessageBox::Question);
     box.setText(msg);
-    QPushButton *btnMerge  = box.addButton("叠加到已有工单", QMessageBox::DestructiveRole);
+    QPushButton *btnMerge  = box.addButton("编辑原有工单", QMessageBox::DestructiveRole);
     QPushButton *btnNew    = box.addButton("创建新工单", QMessageBox::AcceptRole);
     QPushButton *btnCancel = box.addButton("取消", QMessageBox::RejectRole);
     box.setDefaultButton(btnNew);
@@ -1278,6 +1341,195 @@ bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
     m_mergeTargetWoid = 0;
     m_mergeTargetOrderNo.clear();
     return true;
+}
+
+// ============================================================
+// setPartsAreaMode — 备件区两种形态：
+//   false=创建工单：标题"预计备件选择"，显示搜索/定价/确定/删除按钮，列表为本次预计备件
+//   true =编辑已有工单：标题"已出库备件"，隐藏搜索/定价/确定/删除按钮，列表独占显示已绑定备件
+// ============================================================
+void FrontDeskPage::setPartsAreaMode(bool editMode)
+{
+    m_lblPartTitle->setText(editMode ? "已出库备件" : "预计备件选择");
+    m_partSearch->setVisible(!editMode);
+    m_lblPartPriceLabel->setVisible(!editMode);
+    m_partPrice->setVisible(!editMode);
+    m_btnAddPart->setVisible(!editMode);
+    m_btnRemovePart->setVisible(!editMode);
+    if (editMode)
+        m_partTable->setHorizontalHeaderLabels({"名称", "数量", "小计"});
+    else
+        m_partTable->setHorizontalHeaderLabels({"名称", "型号", "单价"});
+}
+
+// ============================================================
+// loadWorkOrderForEdit — 编辑已有工单：加载旧工单全部信息到派工界面
+// 在 lockVehicle 锁定车辆并 setState(STATE_DISPATCH) 之后调用
+// ============================================================
+void FrontDeskPage::loadWorkOrderForEdit(int workorderId)
+{
+    RemoteQuery q;
+    q.prepare("SELECT order_no, customer_service_id, mileage, repair_content, repair_date, "
+              "estimated_date, shift, mechanic_tech_id, body_tech_id, paint_tech_id, "
+              "technician_id, main_technician, labor_fee, other_fee, management_fee, total_amount "
+              "FROM t_workorder WHERE id=:woid");
+    q.bindValue(":woid", workorderId);
+    if (!q.exec() || !q.next()) {
+        QMessageBox::warning(this, "提示", "未能读取该工单信息");
+        return;
+    }
+
+    m_editMode = true;
+
+    // ---- 派工区回填 ----
+    m_editOrderNo->setText(q.value(0).toString());
+    emit orderNoChanged(m_editOrderNo->text());
+    {
+        int svcId = q.value(1).toInt();
+        for (int i = 0; i < m_cmbAdvisor->count(); i++) {
+            if (m_cmbAdvisor->itemData(i).toInt() == svcId) { m_cmbAdvisor->setCurrentIndex(i); break; }
+        }
+    }
+    m_spinMileage->setValue(q.value(2).toInt());
+    m_textContent->setPlainText(q.value(3).toString());
+    m_dateRepair->setDate(q.value(4).toDate());
+    m_dateEstimated->setDate(q.value(5).toDate());
+    m_cmbShift->setCurrentText(q.value(6).toString());
+
+    // 技工主修人按 ID 匹配
+    {
+        QComboBox *combos[3] = { m_mechTech, m_bodyTech, m_paintTech };
+        int ids[3] = { q.value(7).toInt(), q.value(8).toInt(), q.value(9).toInt() };
+        for (int k = 0; k < 3; k++) {
+            int idx = -1;
+            for (int i = 0; i < combos[k]->count(); i++) {
+                if (combos[k]->itemData(i).toInt() == ids[k]) { idx = i; break; }
+            }
+            combos[k]->setCurrentIndex(idx);
+        }
+    }
+
+    // ---- 报修明细：清空 setState 加的默认空行，按工单明细重建 ----
+    for (auto &row : m_allRows) {
+        if (row.container) delete row.container;
+    }
+    m_allRows.clear();
+
+    RemoteQuery rq;
+    rq.prepare("SELECT item_type, repair_content, fee FROM t_workorder_repair_item "
+               "WHERE workorder_id=:woid ORDER BY id");
+    rq.bindValue(":woid", workorderId);
+    rq.exec();
+    int loaded = 0;
+    while (rq.next()) {
+        const QString type = rq.value(0).toString();
+        if (type != "机电" && type != "钣金" && type != "喷漆") continue;
+        addRepairRow(type);
+        ItemRow &row = m_allRows.last();
+        row.content->setText(rq.value(1).toString());
+        row.fee->setValue(rq.value(2).toDouble());
+        loaded++;
+    }
+    if (loaded == 0) {   // 无明细则保留默认空行
+        addRepairRow("机电"); addRepairRow("钣金"); addRepairRow("喷漆");
+    }
+
+    // ---- 费用回填 ----
+    m_spinOther->setValue(q.value(13).toDouble());
+    m_spinMgmt->setValue(q.value(14).toDouble());
+
+    // 材料费 = 已绑定备件小计之和（t_workorder_item），编辑态由 onFeeChanged 使用
+    RemoteQuery mq;
+    mq.prepare("SELECT COALESCE(SUM(subtotal),0) FROM t_workorder_item "
+               "WHERE workorder_id=:woid AND item_type='材料'");
+    mq.bindValue(":woid", workorderId);
+    mq.exec();
+    m_editMatFee = mq.next() ? mq.value(0).toDouble() : 0;
+
+    // ---- 已出库备件列表（只读，独占区域） ----
+    m_selectedParts.clear();
+    m_partTable->setRowCount(0);
+    RemoteQuery pq;
+    pq.prepare("SELECT part_name, SUM(quantity), unit_price FROM t_workorder_item "
+               "WHERE workorder_id=:woid AND item_type='材料' "
+               "GROUP BY part_name, unit_price ORDER BY MIN(id)");
+    pq.bindValue(":woid", workorderId);
+    pq.exec();
+    int row = 0;
+    while (pq.next()) {
+        m_partTable->insertRow(row);
+        m_partTable->setItem(row, 0, new QTableWidgetItem(pq.value(0).toString()));
+        m_partTable->setItem(row, 1, new QTableWidgetItem(
+            QString("×%1").arg(pq.value(1).toDouble(), 0, 'f', 3)));
+        m_partTable->setItem(row, 2, new QTableWidgetItem(
+            QString("¥%1").arg(pq.value(1).toDouble() * pq.value(2).toDouble(), 0, 'f', 2)));
+        row++;
+    }
+
+    // ---- 删除工单按钮：仅当工单未被任何备件绑定时可用 ----
+    int boundCount = 0;
+    {
+        RemoteQuery cq;
+        cq.prepare("SELECT COUNT(*) FROM t_workorder_item WHERE workorder_id=:woid");
+        cq.bindValue(":woid", workorderId);
+        if (cq.exec() && cq.next()) boundCount = cq.value(0).toInt();
+    }
+    m_btnDeleteOrder->setVisible(true);
+    m_btnDeleteOrder->setEnabled(boundCount == 0);
+    m_btnDeleteOrder->setToolTip(boundCount > 0 ? "该工单已绑定备件，无法删除" : "删除该工单（不可恢复）");
+
+    setPartsAreaMode(true);
+    onFeeChanged();   // 以界面当前内容重算工时/材料/合计显示
+}
+
+// ============================================================
+// onDeleteWorkOrder — 编辑态删除当前工单（未被任何备件绑定时可删）
+// ============================================================
+void FrontDeskPage::onDeleteWorkOrder()
+{
+    if (!m_editMode || m_mergeTargetWoid <= 0) return;
+    const int woid = m_mergeTargetWoid;
+
+    // 前置校验：工单未被任何备件绑定
+    {
+        RemoteQuery q;
+        q.prepare("SELECT COUNT(*) FROM t_workorder_item WHERE workorder_id=:woid");
+        q.bindValue(":woid", woid);
+        if (q.exec() && q.next() && q.value(0).toInt() > 0) {
+            QMessageBox::warning(this, "提示", "该工单已绑定备件，无法删除。请先处理备件出库/退库。");
+            m_btnDeleteOrder->setEnabled(false);
+            return;
+        }
+    }
+
+    if (QMessageBox::warning(this, "确认删除",
+            QString("确定删除工单 %1 吗？\n\n将删除该工单及其报修明细、维修历史、交易记录，操作不可恢复。")
+            .arg(m_mergeTargetOrderNo),
+            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    QJsonArray steps;
+    steps.append(RemoteDb::step("DELETE FROM t_workorder_repair_item WHERE workorder_id=:woid",
+                                QJsonObject{{ ":woid", woid }}));
+    steps.append(RemoteDb::step("DELETE FROM t_technician_work_record WHERE workorder_id=:woid",
+                                QJsonObject{{ ":woid", woid }}));
+    steps.append(RemoteDb::step("DELETE FROM t_maintenance_history WHERE workorder_id=:woid",
+                                QJsonObject{{ ":woid", woid }}));
+    steps.append(RemoteDb::step("DELETE FROM t_vehicle_transaction WHERE workorder_id=:woid",
+                                QJsonObject{{ ":woid", woid }}));
+    steps.append(RemoteDb::step("DELETE FROM t_settlement WHERE workorder_id=:woid",
+                                QJsonObject{{ ":woid", woid }}));
+    steps.append(RemoteDb::step("DELETE FROM t_workorder WHERE id=:woid",
+                                QJsonObject{{ ":woid", woid }}));
+
+    QJsonObject txn = RemoteDb::transaction(steps);
+    if (!txn.value("ok").toBool()) {
+        QMessageBox::warning(this, "删除失败", txn.value("error").toString());
+        return;
+    }
+
+    QMessageBox::information(this, "删除成功", QString("工单 %1 已删除").arg(m_mergeTargetOrderNo));
+    onClearVehicle();
 }
 
 // ============================================================
@@ -1441,17 +1693,34 @@ void FrontDeskPage::onSaveVehicleInfo()
 {
     if (m_lockedVid == 0) return;
 
+    // 公里数校验：不能小于数据库中之前保存的公里数
+    {
+        RemoteQuery q;
+        q.prepare("SELECT current_mileage FROM t_vehicle WHERE id=:vid");
+        q.bindValue(":vid", m_lockedVid);
+        if (q.exec() && q.next()) {
+            int dbMileage = q.value(0).toInt();
+            if (m_spinMileage->value() < dbMileage) {
+                QMessageBox::warning(this, "公里数异常",
+                    QString("当前输入公里数(%1 km)小于车辆档案中记录的公里数(%2 km)，请核实后重新输入。")
+                    .arg(m_spinMileage->value()).arg(dbMileage));
+                return;
+            }
+        }
+    }
+
     if (QMessageBox::question(this, "确认保存",
             "确认保存对车辆信息的修改？",
             QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
         return;
 
     // 车辆+车主信息更新在一个事务内原子执行（经 4s-server）
+    // 公里数一并保存到车辆档案（派工界面输入的当前公里数）
     QJsonArray steps;
     steps.append(RemoteDb::step(
         "UPDATE t_vehicle SET plate_number=:p, vin=:v, engine_number=:e, "
         "model=:m, color=:col, fuel_type=:fuel, transmission=:trans, "
-        "purchase_date=:pd WHERE id=:id",
+        "purchase_date=:pd, current_mileage=:mile WHERE id=:id",
         QJsonObject{
             { ":p", m_dispPlate->text().trimmed() },
             { ":v", RemoteDb::v(m_dispVin->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispVin->text().trimmed()) },
@@ -1461,6 +1730,7 @@ void FrontDeskPage::onSaveVehicleInfo()
             { ":fuel", RemoteDb::v(m_dispFuel->currentText().isEmpty() ? QVariant(QString()) : m_dispFuel->currentText()) },
             { ":trans", RemoteDb::v(m_dispTrans->currentText().isEmpty() ? QVariant(QString()) : m_dispTrans->currentText()) },
             { ":pd", RemoteDb::v(m_dispPurchase->date()) },
+            { ":mile", m_spinMileage->value() },
             { ":id", m_lockedVid },
         }));
     steps.append(RemoteDb::step(
@@ -1659,104 +1929,148 @@ void FrontDeskPage::onCreateWorkOrder()
     qDebug() << "  创建人ID:" << Session::instance().userId();
     qDebug() << "==========================================================";
 
-    // ========== 3. 按锁定车辆时的选择执行：叠加到已有工单 ==========
-    // 锁定车辆时若选了「叠加到已有工单」，m_mergeTargetWoid 即为目标工单；
-    // 保存并派工不再弹窗询问，直接按该选择处理。
+    // ========== 3. 按锁定车辆时的选择执行：编辑原有工单 ==========
+    // 锁定车辆时若选了「编辑原有工单」，m_mergeTargetWoid 即为目标工单；
+    // 保存并派工不再弹窗询问，直接整体更新该工单（不另建新工单）。
     if (m_mergeTargetWoid > 0) {
         const int    latestWoid    = m_mergeTargetWoid;
         const QString latestOrderNo = m_mergeTargetOrderNo;
 
-        qDebug() << "[onCreateWorkOrder] 叠加到已有工单, woid:" << latestWoid << " orderNo:" << latestOrderNo;
+        qDebug() << "[onCreateWorkOrder] 编辑已有工单, woid:" << latestWoid << " orderNo:" << latestOrderNo;
 
-                // 叠加操作在一个事务内原子执行（经 4s-server）
-                QJsonArray steps;
+        // 编辑操作在一个事务内原子执行（经 4s-server）
+        QJsonArray steps;
+
+        // 整体更新工单字段：费用按界面值重新计算落库。材料费取已绑定备件合计
+        //（t_workorder_item.subtotal），与结算口径一致；工单金额不含材料（与创建口径一致）
+        steps.append(RemoteDb::step(
+            "UPDATE t_workorder SET "
+            "technician_id=:tid, mechanic_tech_id=:mtid, body_tech_id=:btid, paint_tech_id=:ptid, "
+            "customer_service_id=:csi, mileage=:mile, repair_content=:cont, "
+            "repair_date=:rd, estimated_date=:ed, shift=:sh, main_technician=:mtech, "
+            "material_fee=:mf, labor_fee=:lf, other_fee=:of, management_fee=:mgf, total_amount=:total "
+            "WHERE id=:woid",
+            QJsonObject{
+                { ":tid", compatTechId > 0 ? QJsonValue(compatTechId) : QJsonValue(QJsonValue::Null) },
+                { ":mtid", mechTechId > 0 ? QJsonValue(mechTechId) : QJsonValue(QJsonValue::Null) },
+                { ":btid", bodyTechId > 0 ? QJsonValue(bodyTechId) : QJsonValue(QJsonValue::Null) },
+                { ":ptid", paintTechId > 0 ? QJsonValue(paintTechId) : QJsonValue(QJsonValue::Null) },
+                { ":csi", m_cmbAdvisor->currentData().toInt() > 0
+                              ? QJsonValue(m_cmbAdvisor->currentData().toInt()) : QJsonValue(QJsonValue::Null) },
+                { ":mile", m_spinMileage->value() },
+                { ":cont", m_textContent->toPlainText() },
+                { ":rd", RemoteDb::v(m_dateRepair->date()) },
+                { ":ed", RemoteDb::v(m_dateEstimated->date()) },
+                { ":sh", m_cmbShift->currentText() },
+                { ":mtech", RemoteDb::v(compatTechName.isEmpty() ? QString() : compatTechName) },
+                { ":mf", m_editMatFee },
+                { ":lf", labor }, { ":of", oth }, { ":mgf", mgmt },
+                { ":total", orderTotal },
+                { ":woid", latestWoid },
+            }));
+
+        // 报修明细：先删后插，以界面当前内容为准
+        steps.append(RemoteDb::step(
+            "DELETE FROM t_workorder_repair_item WHERE workorder_id=:woid",
+            QJsonObject{ { ":woid", latestWoid } }));
+        steps.append(RemoteDb::step(
+            "DELETE FROM t_technician_work_record WHERE workorder_id=:woid",
+            QJsonObject{ { ":woid", latestWoid } }));
+
+        for (auto &row : m_allRows) {
+            QString cont = row.content->text().trimmed();
+            double fee = row.fee->value();
+            if (cont.isEmpty() && fee == 0) continue;
+            int techId = 0;
+            QString techName;
+            if (row.type == "机电")      { techId = mechTechId;  techName = m_mechTech->currentText(); }
+            else if (row.type == "钣金") { techId = bodyTechId;  techName = m_bodyTech->currentText(); }
+            else if (row.type == "喷漆") { techId = paintTechId; techName = m_paintTech->currentText(); }
+
+            steps.append(RemoteDb::step(
+                "INSERT INTO t_workorder_repair_item (workorder_id,item_type,repair_person,repair_content,fee) "
+                "VALUES (:woid,:type,:person,:cont,:fee)",
+                QJsonObject{
+                    { ":woid", latestWoid }, { ":type", row.type },
+                    { ":person", RemoteDb::v(techName.isEmpty() ? QString() : techName) },
+                    { ":cont", cont }, { ":fee", fee },
+                }));
+
+            if (techId > 0) {
                 steps.append(RemoteDb::step(
-                    "UPDATE t_workorder SET "
-                    "labor_fee = labor_fee + :lf, "
-                    "other_fee = other_fee + :of, "
-                    "management_fee = management_fee + :mgf, "
-                    "total_amount = total_amount + :total "
-                    "WHERE id=:woid",
+                    "INSERT INTO t_technician_work_record (workorder_id,technician_id,item_type,work_content,fee) "
+                    "VALUES (:woid,:tid,:type,:cont,:fee)",
                     QJsonObject{
-                        { ":lf", labor }, { ":of", oth }, { ":mgf", mgmt },
-                        { ":total", orderTotal },
-                        { ":woid", latestWoid },
+                        { ":woid", latestWoid }, { ":tid", techId }, { ":type", row.type },
+                        { ":cont", cont }, { ":fee", fee },
                     }));
+            }
+        }
 
-                // 插入新的维修项目明细
-                for (auto &row : m_allRows) {
-                    QString cont = row.content->text().trimmed();
-                    double fee = row.fee->value();
-                    if (cont.isEmpty() && fee == 0) continue;
-                    int techId = 0;
-                    QString techName;
-                    if (row.type == "机电")      { techId = mechTechId;  techName = m_mechTech->currentText(); }
-                    else if (row.type == "钣金") { techId = bodyTechId;  techName = m_bodyTech->currentText(); }
-                    else if (row.type == "喷漆") { techId = paintTechId; techName = m_paintTech->currentText(); }
+        // 维修历史：更新为编辑后的值（状态保持已派工）
+        {
+            QStringList techNames, repairJsonParts, repairSummaryParts;
+            for (auto &row : m_allRows) {
+                QString cont = row.content->text().trimmed();
+                double fee = row.fee->value();
+                if (cont.isEmpty() && fee == 0) continue;
+                QString techName;
+                if (row.type == "机电")      techName = m_mechTech->currentText();
+                else if (row.type == "钣金") techName = m_bodyTech->currentText();
+                else if (row.type == "喷漆") techName = m_paintTech->currentText();
+                if (!techName.isEmpty() && !techNames.contains(techName)) techNames << techName;
+                repairJsonParts << QString("{\"type\":\"%1\",\"person\":\"%2\",\"content\":\"%3\",\"fee\":%4}")
+                    .arg(row.type, techName, cont, QString::number(fee, 'f', 2));
+                repairSummaryParts << QString("[%1] %2 ¥%3").arg(row.type, cont, QString::number(fee, 'f', 2));
+            }
+            const QString rj = "[" + repairJsonParts.join(",") + "]";
+            const QString rs = repairSummaryParts.join("; ");
 
-                    steps.append(RemoteDb::step(
-                        "INSERT INTO t_workorder_repair_item (workorder_id,item_type,repair_person,repair_content,fee) "
-                        "VALUES (:woid,:type,:person,:cont,:fee)",
-                        QJsonObject{
-                            { ":woid", latestWoid }, { ":type", row.type },
-                            { ":person", RemoteDb::v(techName.isEmpty() ? QString() : techName) },
-                            { ":cont", cont }, { ":fee", fee },
-                        }));
+            steps.append(RemoteDb::step(
+                "INSERT INTO t_maintenance_history "
+                "(vehicle_id, workorder_id, status, maintenance_date, entry_date, mileage, service_advisor, "
+                "technicians, labor_fee, material_fee, other_fee, management_fee, "
+                "total_amount, cumulative_amount, repair_summary, repair_items) "
+                "VALUES (:vid, :woid, '已派工', :md, :entry, :mile, :svc, :tech, "
+                ":labor, :mat, :other, :mgmt, :total, :total, :repair, :ritems) "
+                "ON DUPLICATE KEY UPDATE status='已派工', entry_date=VALUES(entry_date), "
+                "mileage=VALUES(mileage), service_advisor=VALUES(service_advisor), "
+                "technicians=VALUES(technicians), labor_fee=VALUES(labor_fee), "
+                "material_fee=VALUES(material_fee), "
+                "other_fee=VALUES(other_fee), management_fee=VALUES(management_fee), "
+                "total_amount=VALUES(total_amount), "
+                "repair_summary=VALUES(repair_summary), repair_items=VALUES(repair_items)",
+                QJsonObject{
+                    { ":vid", m_lockedVid }, { ":woid", latestWoid },
+                    { ":md", RemoteDb::v(m_dateRepair->date()) },
+                    { ":entry", RemoteDb::v(m_dateRepair->date()) }, { ":mile", m_spinMileage->value() },
+                    { ":svc", RemoteDb::v(m_cmbAdvisor->currentText().isEmpty() ? QString() : m_cmbAdvisor->currentText()) },
+                    { ":tech", RemoteDb::v(techNames.isEmpty() ? QString() : techNames.join(", ")) },
+                    { ":labor", labor }, { ":mat", m_editMatFee }, { ":other", oth }, { ":mgmt", mgmt },
+                    { ":total", orderTotal },
+                    { ":repair", RemoteDb::v(rs.isEmpty() ? QString() : rs) },
+                    { ":ritems", RemoteDb::v(rj == "[]" ? QString() : rj) },
+                }));
+        }
 
-                    if (techId > 0) {
-                        steps.append(RemoteDb::step(
-                            "INSERT INTO t_technician_work_record (workorder_id,technician_id,item_type,work_content,fee) "
-                            "VALUES (:woid,:tid,:type,:cont,:fee)",
-                            QJsonObject{
-                                { ":woid", latestWoid }, { ":tid", techId }, { ":type", row.type },
-                                { ":cont", cont }, { ":fee", fee },
-                            }));
-                    }
-                }
+        // 更新车辆当前公里数（编辑不改 last_maintenance_*，保养信息由结算写入）
+        steps.append(RemoteDb::step(
+            "UPDATE t_vehicle SET current_mileage=:mile WHERE id=:vid",
+            QJsonObject{ { ":mile", m_spinMileage->value() }, { ":vid", m_lockedVid } }));
 
-                // 更新维修历史：费用相加，追记维修项目
-                steps.append(RemoteDb::step(
-                    "UPDATE t_maintenance_history SET "
-                    "labor_fee = labor_fee + :lf, "
-                    "other_fee = other_fee + :of, "
-                    "management_fee = management_fee + :mgf, "
-                    "total_amount = total_amount + :total, "
-                    "cumulative_amount = cumulative_amount + :total "
-                    "WHERE workorder_id=:woid",
-                    QJsonObject{
-                        { ":lf", labor }, { ":of", oth }, { ":mgf", mgmt },
-                        { ":total", orderTotal },
-                        { ":woid", latestWoid },
-                    }));
+        QJsonObject txn = RemoteDb::transaction(steps);
+        if (!txn.value("ok").toBool()) {
+            QMessageBox::warning(this, "失败", "更新工单失败: " + txn.value("error").toString());
+            return;
+        }
 
-                // 记录车辆交易
-                steps.append(RemoteDb::step(
-                    "INSERT INTO t_vehicle_transaction (vehicle_id,workorder_id,transaction_type,description,operator_id) "
-                    "VALUES (:vid,:woid,'进厂维修',:desc,:op)",
-                    QJsonObject{
-                        { ":vid", m_lockedVid }, { ":woid", latestWoid },
-                        { ":desc", QString("叠加项目到工单 %1").arg(latestOrderNo) },
-                        { ":op", Session::instance().userId() },
-                    }));
-
-                // 更新车辆公里数
-                steps.append(RemoteDb::step(
-                    "UPDATE t_vehicle SET current_mileage=:mile WHERE id=:vid",
-                    QJsonObject{ { ":mile", m_spinMileage->value() }, { ":vid", m_lockedVid } }));
-
-                QJsonObject txn = RemoteDb::transaction(steps);
-                if (!txn.value("ok").toBool()) {
-                    QMessageBox::warning(this, "失败", "叠加操作失败: " + txn.value("error").toString());
-                    return;
-                }
-
-                QMessageBox::information(this, "叠加成功",
-                    QString("本次项目已叠加到工单 %1\n新增工时费: ¥%2\n新增其它费: ¥%3\n新增管理费: ¥%4\n新增合计: ¥%5")
-                        .arg(latestOrderNo)
-                        .arg(labor, 0, 'f', 2)
-                        .arg(oth, 0, 'f', 2)
-                        .arg(mgmt, 0, 'f', 2)
-                        .arg(orderTotal, 0, 'f', 2));
+        QMessageBox::information(this, "更新成功",
+            QString("工单 %1 已更新\n工时费: ¥%2\n其它费: ¥%3\n管理费: ¥%4\n合计: ¥%5")
+                .arg(latestOrderNo)
+                .arg(labor, 0, 'f', 2)
+                .arg(oth, 0, 'f', 2)
+                .arg(mgmt, 0, 'f', 2)
+                .arg(orderTotal, 0, 'f', 2));
         emit workOrderCreated(latestWoid, latestOrderNo);
         onClearVehicle();
         return;
@@ -2418,7 +2732,7 @@ void FrontDeskPage::onShowMaintenanceHistory()
             if (cbP->isChecked()) types.insert("喷漆");
 
             QList<QStringList> items;
-            // 优先从实表 t_workorder_repair_item 读取：始终完整，含叠加合并后的条目
+            // 优先从实表 t_workorder_repair_item 读取：始终完整
             {
                 RemoteQuery rq;
                 rq.prepare("SELECT item_type, repair_person, repair_content, fee "

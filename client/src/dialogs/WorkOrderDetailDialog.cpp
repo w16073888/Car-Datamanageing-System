@@ -110,11 +110,11 @@ void WorkOrderDetailDialog::setupUI()
     QLabel *summaryLabel = new QLabel("▸ 费用总计");
     summaryLabel->setStyleSheet("font-weight:bold;font-size:12px;color:#2c3e50;margin-top:4px;");
     scrollLayout->addWidget(summaryLabel);
-    m_summaryTable = new QTableWidget(1, 10);
+    m_summaryTable = new QTableWidget(1, 12);
     m_summaryTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_summaryTable->verticalHeader()->setVisible(false);
     m_summaryTable->horizontalHeader()->setVisible(false);
-    for (int c = 0; c < 10; c++)
+    for (int c = 0; c < 12; c++)
         m_summaryTable->horizontalHeader()->setSectionResizeMode(c, QHeaderView::Stretch);
     m_summaryTable->setMaximumHeight(50);
     m_summaryTable->setStyleSheet(
@@ -156,7 +156,7 @@ void WorkOrderDetailDialog::loadDetail(const QString &orderNo)
     // 1. 工单 + 车辆 + 车主信息
     q.prepare(
         "SELECT w.id, w.order_no, w.status, w.labor_fee, w.material_fee, "
-        "  w.other_fee, w.management_fee, w.total_amount, "
+        "  w.other_fee, w.management_fee, w.discount, w.total_amount, "
         "  w.repair_content, w.created_at, "
         "  v.plate_number, v.vin, v.model, v.engine_number, "
         "  COALESCE(v.owner_name,''), COALESCE(v.owner_phone,''), COALESCE(v.owner_address,''), "
@@ -178,15 +178,16 @@ void WorkOrderDetailDialog::loadDetail(const QString &orderNo)
     double laborFee = q.value(3).toDouble();
     double otherFee = q.value(5).toDouble();
     double mgmtFee = q.value(6).toDouble();
-    QString repairContent = q.value(8).toString();
-    QString createdAt = q.value(9).toDateTime().toString("yyyy-MM-dd HH:mm");
-    QString plate = q.value(10).toString();
-    QString vin = q.value(11).toString();
-    QString model = q.value(12).toString();
-    QString engine = q.value(13).toString();
-    QString ownerName = q.value(14).toString();
-    QString ownerPhone = q.value(15).toString();
-    QString svcAdvisor = q.value(17).toString();
+    double discount = q.value(7).toDouble();
+    QString repairContent = q.value(9).toString();
+    QString createdAt = q.value(10).toDateTime().toString("yyyy-MM-dd HH:mm");
+    QString plate = q.value(11).toString();
+    QString vin = q.value(12).toString();
+    QString model = q.value(13).toString();
+    QString engine = q.value(14).toString();
+    QString ownerName = q.value(15).toString();
+    QString ownerPhone = q.value(16).toString();
+    QString svcAdvisor = q.value(18).toString();
 
     // 车辆 + 车主信息（两行，格式与工单查询一致）
     QString vehicleHtml = QString(
@@ -248,7 +249,7 @@ void WorkOrderDetailDialog::loadDetail(const QString &orderNo)
     // 3. 材料明细表（含成本列，与工单查询一致）
     RemoteQuery pq;
     pq.prepare(
-        "SELECT wi.part_name, COUNT(*) AS qty, wi.unit_price, SUM(wi.subtotal) AS subtotal, "
+        "SELECT wi.part_name, SUM(wi.quantity) AS qty, wi.unit_price, SUM(wi.subtotal) AS subtotal, "
         "  COALESCE(MAX(p.purchase_price), 0) AS cost "
         "FROM t_workorder_item wi "
         "LEFT JOIN t_parts p ON p.id = wi.part_id "
@@ -258,13 +259,13 @@ void WorkOrderDetailDialog::loadDetail(const QString &orderNo)
     pq.bindValue(":oid", m_orderId);
     pq.exec();
 
-    struct PartItem { QString name; int qty; double cost, price, sub; };
+    struct PartItem { QString name; double qty; double cost, price, sub; };
     QList<PartItem> partItems;
     double partsTotal = 0;
     while (pq.next()) {
         PartItem it;
         it.name  = pq.value(0).toString();
-        it.qty   = pq.value(1).toInt();
+        it.qty   = pq.value(1).toDouble();
         it.price = pq.value(2).toDouble();
         it.sub   = pq.value(3).toDouble();
         it.cost  = pq.value(4).toDouble();
@@ -288,14 +289,15 @@ void WorkOrderDetailDialog::loadDetail(const QString &orderNo)
         m_partsTable->setItem(row, colBase + 5, new QTableWidgetItem(QString("¥%1").arg(it.sub, 0, 'f', 2)));
     }
 
-    // 4. 费用总计表
-    double grandTotal = displayLabor + partsTotal + otherFee + mgmtFee;
+    // 4. 费用总计表（应收合计 = 各费用之和 − 优惠）
+    double grandTotal = displayLabor + partsTotal + otherFee + mgmtFee - discount;
     struct { int c; QString label; bool hl; } summaryFields[] = {
         {0,  "工时费合计", false},
         {2,  "材料费合计", false},
-        {4,  "其他费",     false},
-        {6,  "管理费",     false},
-        {8,  "应收合计",   true},
+        {4,  "优惠",       false},
+        {6,  "其他费",     false},
+        {8,  "管理费",     false},
+        {10, "应收合计",   true},
     };
     for (const auto &f : summaryFields) {
         QTableWidgetItem *lbl = new QTableWidgetItem(f.label);
@@ -310,9 +312,10 @@ void WorkOrderDetailDialog::loadDetail(const QString &orderNo)
         switch (f.c) {
             case 0:  val = displayLabor; break;
             case 2:  val = partsTotal; break;
-            case 4:  val = otherFee; break;
-            case 6:  val = mgmtFee; break;
-            case 8:  val = grandTotal; break;
+            case 4:  val = discount; break;
+            case 6:  val = otherFee; break;
+            case 8:  val = mgmtFee; break;
+            case 10: val = grandTotal; break;
         }
         QTableWidgetItem *v = new QTableWidgetItem(QString("¥%1").arg(val, 0, 'f', 2));
         v->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);

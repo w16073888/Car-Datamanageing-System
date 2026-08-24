@@ -158,14 +158,26 @@ void MainWindow::setupMenuBar()
     m_actFrontDesk = m_menuRepair->addAction("前台工作台");
     m_actFrontDesk->setStatusTip("车辆登记、派工、打印报价单/工单");
     connect(m_actFrontDesk, &QAction::triggered, this, [this]() {
-        // 前台工作台以独立固定尺寸窗口打开
-        QDialog dlg(this);
-        dlg.setWindowTitle("前台工作台");
-        dlg.setFixedSize(1280, 720);
-        QVBoxLayout *l = new QVBoxLayout(&dlg);
+        // 非模态独立窗口（可最小化）：已打开则前置，关闭即销毁，重新点击新建
+        if (m_frontDeskDlg) {
+            m_frontDeskDlg->show();
+            m_frontDeskDlg->raise();
+            m_frontDeskDlg->activateWindow();
+            return;
+        }
+        m_frontDeskDlg = new QDialog(this);
+        QDialog *dlg = m_frontDeskDlg;
+        dlg->setWindowTitle("前台工作台");
+        dlg->setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint
+                            | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint
+                            | Qt::WindowCloseButtonHint);
+        dlg->setFixedSize(1280, 720);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);   // 关闭即销毁，避免残留状态
+
+        QVBoxLayout *l = new QVBoxLayout(dlg);
         l->setContentsMargins(0, 0, 0, 0);
 
-        FrontDeskPage *fd = new FrontDeskPage(&dlg);
+        FrontDeskPage *fd = new FrontDeskPage(dlg);
         l->addWidget(fd);
 
         connect(fd, &FrontDeskPage::workOrderCreated,
@@ -176,10 +188,18 @@ void MainWindow::setupMenuBar()
         });
         connect(fd, &FrontDeskPage::orderNoChanged,
                 this, &MainWindow::onFrontDeskOrderNoChanged);
-
-        dlg.exec();
         // 弹窗关闭后清除工单号显示
-        m_orderNoLabel->setVisible(false);
+        connect(dlg, &QDialog::finished, this, [this]() {
+            m_orderNoLabel->setVisible(false);
+        });
+        connect(dlg, &QObject::destroyed, this, [this, dlg]() {
+            if (m_frontDeskDlg == dlg)
+                m_frontDeskDlg = nullptr;
+        });
+
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
     });
 
     m_menuRepair->addSeparator();
@@ -197,15 +217,36 @@ void MainWindow::setupMenuBar()
     m_actWarehouse = m_menuWarehouse->addAction("库房工作台");
     m_actWarehouse->setStatusTip("备件领取、材料结算/提单、采购入库、库存查询、退库退货");
     connect(m_actWarehouse, &QAction::triggered, this, [this]() {
-        // 库房工作台以独立固定尺寸窗口打开
-        QDialog dlg(this);
-        dlg.setWindowTitle("库房工作台");
-        dlg.setFixedSize(1280, 720);
-        QVBoxLayout *l = new QVBoxLayout(&dlg);
+        // 非模态独立窗口（可最小化）：已打开则前置，关闭即销毁，重新点击新建
+        if (m_warehouseDlg) {
+            m_warehouseDlg->show();
+            m_warehouseDlg->raise();
+            m_warehouseDlg->activateWindow();
+            return;
+        }
+        m_warehouseDlg = new QDialog(this);
+        QDialog *dlg = m_warehouseDlg;
+        dlg->setWindowTitle("库房工作台");
+        dlg->setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint
+                            | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint
+                            | Qt::WindowCloseButtonHint);
+        dlg->setFixedSize(1280, 720);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);   // 关闭即销毁，避免残留状态
+
+        QVBoxLayout *l = new QVBoxLayout(dlg);
         l->setContentsMargins(0, 0, 0, 0);
-        WarehousePage *wp = new WarehousePage(&dlg);
+
+        WarehousePage *wp = new WarehousePage(dlg);
         l->addWidget(wp);
-        dlg.exec();
+
+        connect(dlg, &QObject::destroyed, this, [this, dlg]() {
+            if (m_warehouseDlg == dlg)
+                m_warehouseDlg = nullptr;
+        });
+
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
     });
 
     // ============================================================

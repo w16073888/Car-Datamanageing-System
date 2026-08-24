@@ -1,6 +1,7 @@
 #include "QuotePage.h"
 #include "database/Session.h"
 #include "remote/RemoteQuery.h"
+#include "remote/RemoteDb.h"
 #include "remote/SqlUtil.h"
 
 #include <QVBoxLayout>
@@ -22,6 +23,8 @@
 #include <QUrl>
 #include <QDebug>
 #include <QSignalBlocker>
+#include <QJsonArray>
+#include <QJsonObject>
 
 QuotePage::QuotePage(QWidget *parent)
     : QWidget(parent)
@@ -38,8 +41,8 @@ void QuotePage::refreshData()
     m_lblVehicleInfo->setText("请搜索工单");
     m_laborTable->setRowCount(0);
     m_partsTable->setRowCount(0);
-    // 清空费用总计表的值列（row 0: col 1,3,5,7,9）
-    for (int c = 1; c < 10; c += 2) {
+    // 清空费用总计表的值列（row 0: col 1,3,5,7,9,11）
+    for (int c = 1; c < 12; c += 2) {
         QTableWidgetItem *val = m_summaryTable->item(0, c);
         if (val) val->setText("¥0.00");
     }
@@ -51,6 +54,7 @@ void QuotePage::refreshData()
     m_btnSettle->setVisible(false);
     m_btnSavePdf->setVisible(false);
     m_btnPrint->setVisible(false);
+    m_btnReverseSettle->setVisible(false);
 }
 
 void QuotePage::setupUI()
@@ -165,7 +169,7 @@ void QuotePage::setupUI()
     QLabel *summaryLabel = new QLabel("▸ 费用总计");
     summaryLabel->setStyleSheet("font-weight:bold;font-size:15px;color:#2c3e50;margin-top:6px;");
     infoLayout->addWidget(summaryLabel);
-    m_summaryTable = new QTableWidget(1, 10);
+    m_summaryTable = new QTableWidget(1, 12);
     m_summaryTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_summaryTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_summaryTable->verticalHeader()->setVisible(false);
@@ -173,20 +177,21 @@ void QuotePage::setupUI()
     m_summaryTable->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
     m_summaryTable->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_summaryTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    // 全部 Stretch，10 列平分一行
-    for (int c = 0; c < 10; c++)
+    // 全部 Stretch，12 列平分一行
+    for (int c = 0; c < 12; c++)
         m_summaryTable->horizontalHeader()->setSectionResizeMode(c, QHeaderView::Stretch);
     m_summaryTable->setMaximumHeight(50);
     m_summaryTable->setStyleSheet(
         "QTableWidget{background:#f8f9fa;border:1px solid #dcdde1;font-size:13px;}"
         "QTableWidget::item{padding:3px 6px;}");
-    // 单行: 工时费合计|v|材料费合计|v|其他费|v|管理费|v|应收合计|v
+    // 单行: 工时费合计|v|材料费合计|v|优惠|v|其他费|v|管理费|v|应收合计|v
     struct { int col; QString label; bool highlight; } summaryFields[] = {
         {0,  "工时费合计", false},
         {2,  "材料费合计", false},
-        {4,  "其他费",     false},
-        {6,  "管理费",     false},
-        {8,  "应收合计",   true},
+        {4,  "优惠",       false},
+        {6,  "其他费",     false},
+        {8,  "管理费",     false},
+        {10, "应收合计",   true},
     };
     for (const auto &f : summaryFields) {
         QTableWidgetItem *item = new QTableWidgetItem(f.label);
@@ -211,6 +216,12 @@ void QuotePage::setupUI()
     // ---- 费用编辑区（已派工/待提单时显示） ----
     QHBoxLayout *editFeeRow = new QHBoxLayout;
     editFeeRow->setSpacing(8);
+    editFeeRow->addWidget(new QLabel("优惠:"));
+    m_editDiscount = new QDoubleSpinBox;
+    m_editDiscount->setRange(0, 999999.99);
+    m_editDiscount->setPrefix("¥ ");
+    m_editDiscount->setDecimals(2);
+    editFeeRow->addWidget(m_editDiscount);
     editFeeRow->addWidget(new QLabel("其他费:"));
     m_editOtherFee = new QDoubleSpinBox;
     m_editOtherFee->setRange(0, 999999.99);
@@ -280,12 +291,22 @@ void QuotePage::setupUI()
     m_btnPrint->setMinimumHeight(40);
     m_btnPrint->setVisible(false);
 
+    m_btnReverseSettle = new QPushButton("反结算");
+    m_btnReverseSettle->setStyleSheet(
+        "QPushButton{padding:10px 24px;border:none;border-radius:4px;"
+        "background:#c0392b;color:#fff;font-size:14px;font-weight:bold;}"
+        "QPushButton:hover{background:#a93226;}");
+    m_btnReverseSettle->setMinimumHeight(40);
+    m_btnReverseSettle->setVisible(false);
+    m_btnReverseSettle->setToolTip("撤销结算，工单回到「已提单」状态");
+
     btnLayout->addStretch();
     btnLayout->addWidget(m_btnNotifyBilling);
     btnLayout->addWidget(m_btnCancelNotify);
     btnLayout->addWidget(m_btnSettle);
     btnLayout->addWidget(m_btnSavePdf);
     btnLayout->addWidget(m_btnPrint);
+    btnLayout->addWidget(m_btnReverseSettle);
     btnLayout->addStretch();
     mainLayout->addLayout(btnLayout);
 
@@ -310,6 +331,7 @@ void QuotePage::setupUI()
     connect(m_btnNotifyBilling, &QPushButton::clicked, this, &QuotePage::onNotifyBilling);
     connect(m_btnCancelNotify, &QPushButton::clicked, this, &QuotePage::onCancelNotify);
     connect(m_btnSettle, &QPushButton::clicked, this, &QuotePage::onSettle);
+    connect(m_btnReverseSettle, &QPushButton::clicked, this, &QuotePage::onReverseSettle);
     connect(m_btnSavePdf, &QPushButton::clicked, this, &QuotePage::onSaveToPdf);
     connect(m_btnPrint, &QPushButton::clicked, this, &QuotePage::onPrintSettlement);
     connect(m_btnSaveEdit, &QPushButton::clicked, this, &QuotePage::onSaveEdit);
@@ -317,6 +339,40 @@ void QuotePage::setupUI()
             this, &QuotePage::onFeeEditChanged);
     connect(m_editMgmtFee, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &QuotePage::onFeeEditChanged);
+    connect(m_editDiscount, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &QuotePage::onFeeEditChanged);
+    // 优惠编辑完成（回车/失焦）立即保存到数据库，并同步重算应收合计
+    connect(m_editDiscount, &QDoubleSpinBox::editingFinished, this, [this]() {
+        if (m_currentOrderId == 0) return;
+
+        // 汇总工时费
+        double laborTotal = 0;
+        for (int r = 0; r < m_laborTable->rowCount(); r++) {
+            for (int colBase : {0, 5}) {
+                QTableWidgetItem *feeItem = m_laborTable->item(r, colBase + 3);
+                if (feeItem) laborTotal += feeItem->text().remove("¥").toDouble();
+            }
+        }
+        // 汇总材料费
+        double partsTotal = 0;
+        for (int r = 0; r < m_partsTable->rowCount(); r++) {
+            for (int colBase : {0, 7}) {
+                QTableWidgetItem *subItem = m_partsTable->item(r, colBase + 5);
+                if (subItem) partsTotal += subItem->text().remove("¥").toDouble();
+            }
+        }
+        double discount  = m_editDiscount->value();
+        double otherFee  = m_editOtherFee->value();
+        double mgmtFee   = m_editMgmtFee->value();
+        double grandTotal = laborTotal + partsTotal + otherFee + mgmtFee - discount;
+
+        RemoteQuery q;
+        q.prepare("UPDATE t_workorder SET discount = :dc, total_amount = :total WHERE id = :id");
+        q.bindValue(":dc", discount);
+        q.bindValue(":total", grandTotal);
+        q.bindValue(":id", m_currentOrderId);
+        q.exec();
+    });
     connect(m_partsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
         // 单价列编辑后自动刷新总价
         if (col == 4 || col == 11) {
@@ -325,7 +381,7 @@ void QuotePage::setupUI()
             QTableWidgetItem *subItem   = m_partsTable->item(row, col + 1);  // 总价在单价右边
             if (priceItem && qtyItem && subItem) {
                 double price = priceItem->text().remove("¥").toDouble();
-                int    qty   = qtyItem->text().toInt();
+                double qty   = qtyItem->text().toDouble();
                 subItem->setText(QString("¥%1").arg(qty * price, 0, 'f', 2));
             }
         }
@@ -396,7 +452,7 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
     // 1. 工单 + 车辆 + 车主信息
     q.prepare(
         "SELECT w.id, w.order_no, w.status, w.labor_fee, w.material_fee, "
-        "  w.other_fee, w.management_fee, w.total_amount, "
+        "  w.other_fee, w.management_fee, w.discount, w.total_amount, "
         "  w.repair_content, w.created_at, "
         "  v.plate_number, v.vin, v.model, v.engine_number, "
         "  COALESCE(v.owner_name,''), COALESCE(v.owner_phone,''), COALESCE(v.owner_address,''), "
@@ -418,16 +474,17 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
     double laborFee = q.value(3).toDouble();
     double otherFee = q.value(5).toDouble();
     double mgmtFee = q.value(6).toDouble();
-    QString repairContent = q.value(8).toString();
-    QString createdAt = q.value(9).toDateTime().toString("yyyy-MM-dd HH:mm");
-    QString plate = q.value(10).toString();
-    QString vin = q.value(11).toString();
-    QString model = q.value(12).toString();
-    QString engine = q.value(13).toString();
-    QString ownerName = q.value(14).toString();
-    QString ownerPhone = q.value(15).toString();
-    QString ownerAddr = q.value(16).toString();
-    QString svcAdvisor = q.value(17).toString();
+    double discount = q.value(7).toDouble();
+    QString repairContent = q.value(9).toString();
+    QString createdAt = q.value(10).toDateTime().toString("yyyy-MM-dd HH:mm");
+    QString plate = q.value(11).toString();
+    QString vin = q.value(12).toString();
+    QString model = q.value(13).toString();
+    QString engine = q.value(14).toString();
+    QString ownerName = q.value(15).toString();
+    QString ownerPhone = q.value(16).toString();
+    QString ownerAddr = q.value(17).toString();
+    QString svcAdvisor = q.value(18).toString();
 
     // 车辆 + 车主信息（仅两行，每行 6 列）
     QString vehicleHtml = QString(
@@ -508,7 +565,7 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
     // 3. 材料明细表 — 先收集全部条目，再按"先左列后右列"填充
     RemoteQuery pq;
     pq.prepare(
-        "SELECT wi.part_name, COUNT(*) AS qty, wi.unit_price, SUM(wi.subtotal) AS subtotal, "
+        "SELECT wi.part_name, SUM(wi.quantity) AS qty, wi.unit_price, SUM(wi.subtotal) AS subtotal, "
         "  COALESCE(MAX(p.purchase_price), 0) AS cost "
         "FROM t_workorder_item wi "
         "LEFT JOIN t_parts p ON p.id = wi.part_id "
@@ -518,13 +575,13 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
     pq.bindValue(":oid", m_currentOrderId);
     pq.exec();
 
-    struct PartItem { QString name; int qty; double cost, price, sub; };
+    struct PartItem { QString name; double qty; double cost, price, sub; };
     QList<PartItem> partItems;
     double partsTotal = 0;
     while (pq.next()) {
         PartItem it;
         it.name  = pq.value(0).toString();
-        it.qty   = pq.value(1).toInt();
+        it.qty   = pq.value(1).toDouble();
         it.price = pq.value(2).toDouble();
         it.sub   = pq.value(3).toDouble();
         it.cost  = pq.value(4).toDouble();
@@ -570,12 +627,12 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
         m_partsTable->setItem(row, colBase + 5, subItem);
     }
 
-    // 4. 费用总计表
-    double grandTotal = displayLabor + partsTotal + otherFee + mgmtFee;
-    // 单行: 工时费(col1) 材料费(col3) 其他费(col5) 管理费(col7) 应收合计(col9)
+    // 4. 费用总计表（应收合计 = 各费用之和 − 优惠）
+    double grandTotal = displayLabor + partsTotal + otherFee + mgmtFee - discount;
+    // 单行: 工时费(col1) 材料费(col3) 优惠(col5) 其他费(col7) 管理费(col9) 应收合计(col11)
     struct { int c; double v; } feeMap[] = {
-        {1,  displayLabor}, {3,  partsTotal}, {5,  otherFee}, {7,  mgmtFee},
-        {9,  grandTotal},
+        {1,  displayLabor}, {3,  partsTotal}, {5,  discount}, {7,  otherFee},
+        {9,  mgmtFee}, {11, grandTotal},
     };
     for (const auto &f : feeMap) {
         QTableWidgetItem *val = m_summaryTable->item(0, f.c);
@@ -589,8 +646,13 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
     m_editMgmtFee->blockSignals(true);
     m_editMgmtFee->setValue(mgmtFee);
     m_editMgmtFee->blockSignals(false);
+    m_editDiscount->blockSignals(true);
+    m_editDiscount->setValue(discount);
+    m_editDiscount->blockSignals(false);
     m_editOtherFee->setEnabled(canEdit);
     m_editMgmtFee->setEnabled(canEdit);
+    // 优惠在结算（已提单）阶段也可最后调整，结算时随 onSettle 写入数据库
+    m_editDiscount->setEnabled(canEdit || m_currentStatus == "已提单");
     m_btnSaveEdit->setVisible(canEdit);
 
     // 6. 根据状态显示操作按钮
@@ -607,6 +669,7 @@ void QuotePage::updateActionButtons(const QString &status)
     m_btnSettle->setVisible(status == "已提单");
     m_btnSavePdf->setVisible(status == "已提单" || status == "已结算");
     m_btnPrint->setVisible(status == "已提单" || status == "已结算");
+    m_btnReverseSettle->setVisible(status == "已结算");
 }
 
 // ============================================================
@@ -636,12 +699,13 @@ void QuotePage::onFeeEditChanged()
 
     double otherFee = m_editOtherFee->value();
     double mgmtFee  = m_editMgmtFee->value();
+    double discount = m_editDiscount->value();
 
-    double grandTotal = laborTotal + partsTotal + otherFee + mgmtFee;
+    double grandTotal = laborTotal + partsTotal + otherFee + mgmtFee - discount;
 
     struct { int c; double v; } feeMap[] = {
-        {1, laborTotal}, {3, partsTotal}, {5, otherFee}, {7, mgmtFee},
-        {9, grandTotal},
+        {1, laborTotal}, {3, partsTotal}, {5, discount}, {7, otherFee},
+        {9, mgmtFee}, {11, grandTotal},
     };
     for (const auto &f : feeMap) {
         QTableWidgetItem *val = m_summaryTable->item(0, f.c);
@@ -699,14 +763,16 @@ void QuotePage::onSaveEdit()
     }
     double otherFee = m_editOtherFee->value();
     double mgmtFee  = m_editMgmtFee->value();
-    double grandTotal = laborTotal + partsTotal + otherFee + mgmtFee;
+    double discount = m_editDiscount->value();
+    double grandTotal = laborTotal + partsTotal + otherFee + mgmtFee - discount;
 
     // 4. 更新工单费用
     q.prepare("UPDATE t_workorder SET labor_fee = :lf, other_fee = :of, "
-              "management_fee = :mf, total_amount = :total WHERE id = :id");
+              "management_fee = :mf, discount = :dc, total_amount = :total WHERE id = :id");
     q.bindValue(":lf", laborTotal);
     q.bindValue(":of", otherFee);
     q.bindValue(":mf", mgmtFee);
+    q.bindValue(":dc", discount);
     q.bindValue(":total", grandTotal);
     q.bindValue(":id", m_currentOrderId);
     q.exec();
@@ -773,11 +839,10 @@ void QuotePage::savePartPriceEdits()
             // 3) 出库流水售价同步（出库报表读取 t_inventory_log.unit_price / total_price）
             const QString orderNo = m_currentOrderNo.trimmed();
             if (!orderNo.isEmpty()) {
-                q.prepare("UPDATE t_inventory_log SET unit_price = :p, total_price = :t "
+                q.prepare("UPDATE t_inventory_log SET unit_price = :p, total_price = quantity * :p "
                           "WHERE part_id = :pid AND ref_order_no = :ono "
                           "AND operation_type = '维修出库'");
                 q.bindValue(":p", newPrice);
-                q.bindValue(":t", -newPrice);   // 出库流水 total = -单价（数量为 -1）
                 q.bindValue(":pid", partId);
                 q.bindValue(":ono", orderNo);
                 q.exec();
@@ -815,6 +880,15 @@ void QuotePage::onNotifyBilling()
 
     // 先把材料单价编辑保存到数据库
     savePartPriceEdits();
+
+    // 同步保存当前编辑的优惠（通知提单时一并落库，避免优惠丢失）
+    {
+        RemoteQuery dq;
+        dq.prepare("UPDATE t_workorder SET discount = :dc WHERE id = :id");
+        dq.bindValue(":dc", m_editDiscount->value());
+        dq.bindValue(":id", m_currentOrderId);
+        dq.exec();
+    }
 
     RemoteQuery q;
     q.prepare("UPDATE t_workorder SET status = '待提单' WHERE id = :id AND status = '已派工'");
@@ -882,6 +956,15 @@ void QuotePage::onSettle()
     // 先把材料单价编辑保存到数据库，再按新单价重算材料费
     savePartPriceEdits();
 
+    // 同步保存当前编辑的优惠（已提单界面最后调整的优惠在此落库）
+    {
+        RemoteQuery dq;
+        dq.prepare("UPDATE t_workorder SET discount = :dc WHERE id = :id");
+        dq.bindValue(":dc", m_editDiscount->value());
+        dq.bindValue(":id", m_currentOrderId);
+        dq.exec();
+    }
+
     // 重新计算总金额
     RemoteQuery q;
     q.prepare("SELECT COALESCE(SUM(subtotal),0) FROM t_workorder_item "
@@ -891,17 +974,19 @@ void QuotePage::onSettle()
     double matTotal = q.next() ? q.value(0).toDouble() : 0;
 
     q.prepare("SELECT COALESCE(labor_fee,0), COALESCE(other_fee,0), "
-              "COALESCE(management_fee,0) "
+              "COALESCE(management_fee,0), COALESCE(discount,0) "
               "FROM t_workorder WHERE id = :id");
     q.bindValue(":id", m_currentOrderId);
     q.exec();
-    double laborFee = 0, otherFee = 0, mgmtFee = 0;
+    double laborFee = 0, otherFee = 0, mgmtFee = 0, discount = 0;
     if (q.next()) {
         laborFee = q.value(0).toDouble();
         otherFee = q.value(1).toDouble();
         mgmtFee = q.value(2).toDouble();
+        discount = q.value(3).toDouble();
     }
-    double grandTotal = laborFee + matTotal + otherFee + mgmtFee;
+    // 应收合计 = 各费用之和 − 优惠
+    double grandTotal = laborFee + matTotal + otherFee + mgmtFee - discount;
 
     if (QMessageBox::question(this, "确认结算",
             QString("确认结算此工单？\n\n工单号: %1\n应收合计: ¥%2\n\n"
@@ -963,13 +1048,14 @@ void QuotePage::onSettle()
     // 备件摘要
     QStringList partSummaryList;
     RemoteQuery psq;
-    psq.prepare("SELECT part_name, COUNT(*), unit_price FROM t_workorder_item "
+    psq.prepare("SELECT part_name, SUM(quantity), unit_price FROM t_workorder_item "
                 "WHERE workorder_id = :oid AND item_type = '材料' "
                 "GROUP BY part_name, unit_price");
     psq.bindValue(":oid", m_currentOrderId);
     psq.exec();
     while (psq.next())
-        partSummaryList << QString("%1x%2").arg(psq.value(0).toString()).arg(psq.value(1).toInt());
+        partSummaryList << QString("%1x%2").arg(psq.value(0).toString())
+                                                .arg(QString::number(psq.value(1).toDouble()));
     QString partsSummary = partSummaryList.join(", ");
 
     // 报修项目文字摘要
@@ -998,14 +1084,15 @@ void QuotePage::onSettle()
     ih.prepare("INSERT INTO t_maintenance_history "
                "(vehicle_id, workorder_id, status, maintenance_date, entry_date, completion_date, "
                "mileage, service_advisor, technicians, total_amount, cumulative_amount, "
-               "labor_fee, material_fee, other_fee, management_fee, "
+               "labor_fee, material_fee, other_fee, management_fee, discount, "
                "parts_summary, repair_summary, repair_items) "
                "VALUES (:vid, :woid, '已结算', NOW(), :entry, NOW(), :mile, :svc, :tech, "
-               ":total, :cum, :labor, :mat, :oth, :mgmt, :parts, :repair, :ritems) "
+               ":total, :cum, :labor, :mat, :oth, :mgmt, :dc, :parts, :repair, :ritems) "
                "ON DUPLICATE KEY UPDATE status='已结算', completion_date=NOW(), "
                "total_amount=VALUES(total_amount), cumulative_amount=VALUES(cumulative_amount), "
                "labor_fee=VALUES(labor_fee), material_fee=VALUES(material_fee), "
                "other_fee=VALUES(other_fee), management_fee=VALUES(management_fee), "
+               "discount=VALUES(discount), "
                "parts_summary=VALUES(parts_summary), "
                "repair_summary=VALUES(repair_summary), repair_items=VALUES(repair_items)");
     ih.bindValue(":vid", vid);
@@ -1020,6 +1107,7 @@ void QuotePage::onSettle()
     ih.bindValue(":mat", matTotal);
     ih.bindValue(":oth", otherFee);
     ih.bindValue(":mgmt", mgmtFee);
+    ih.bindValue(":dc", discount);
     ih.bindValue(":parts", partsSummary.isEmpty() ? QVariant() : partsSummary);
     ih.bindValue(":repair", repairSummary.isEmpty() ? QVariant() : repairSummary);
     ih.bindValue(":ritems", repairItemsJson.isEmpty() ? QVariant() : repairItemsJson);
@@ -1070,6 +1158,46 @@ void QuotePage::onSettle()
 }
 
 // ============================================================
+// 反结算: 已结算 → 已提单（撤销结算，仅回退状态与结算记录）
+// ============================================================
+void QuotePage::onReverseSettle()
+{
+    if (m_currentOrderId == 0) return;
+
+    if (QMessageBox::question(this, "确认反结算",
+            QString("确定对工单 %1 执行反结算吗？\n\n"
+                    "将把工单状态改回「已提单」，并删除该工单的结算记录（结算单与完工日期将被清除）。\n"
+                    "车辆档案的保养信息与累计消费不受影响。")
+            .arg(m_currentOrderNo),
+            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    // 单事务：状态改回已提单 + 删除结算记录 + 维修历史回退状态并清空完工日期
+    QJsonArray steps;
+    steps.append(RemoteDb::step(
+        "UPDATE t_workorder SET status='已提单' WHERE id=:id AND status='已结算'",
+        QJsonObject{ { ":id", m_currentOrderId } }));
+    steps.append(RemoteDb::step(
+        "DELETE FROM t_settlement WHERE workorder_id=:id",
+        QJsonObject{ { ":id", m_currentOrderId } }));
+    steps.append(RemoteDb::step(
+        "UPDATE t_maintenance_history SET status='已提单', completion_date=NULL WHERE workorder_id=:id",
+        QJsonObject{ { ":id", m_currentOrderId } }));
+
+    QJsonObject txn = RemoteDb::transaction(steps);
+    if (!txn.value("ok").toBool()) {
+        QMessageBox::warning(this, "反结算失败", txn.value("error").toString());
+        return;
+    }
+
+    m_currentStatus = "已提单";
+    updateActionButtons(m_currentStatus);
+    loadOrderInfo(m_currentOrderNo);
+    QMessageBox::information(this, "反结算成功",
+        QString("工单 %1 已反结算，状态回到「已提单」。").arg(m_currentOrderNo));
+}
+
+// ============================================================
 // 构建结算单HTML
 // ============================================================
 QString QuotePage::buildSettlementHtml() const
@@ -1089,7 +1217,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
     RemoteQuery q;
     q.prepare(
         "SELECT w.order_no, w.status, w.labor_fee, w.material_fee, "
-        "  w.other_fee, w.management_fee, w.total_amount, "
+        "  w.other_fee, w.management_fee, w.discount, w.total_amount, "
         "  w.repair_content, w.created_at, w.repair_date, w.mileage, "
         "  v.plate_number, v.vin, v.model, v.engine_number, "
         "  COALESCE(v.owner_name,''), COALESCE(v.owner_phone,''), COALESCE(v.owner_address,'') "
@@ -1104,16 +1232,17 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
     double  laborFee     = q.value(2).toDouble();
     double  otherFee     = q.value(4).toDouble();
     double  mgmtFee      = q.value(5).toDouble();
-    QString createdDate  = q.value(8).toDateTime().toString("yyyy-MM-dd");
-    QString repairDate   = q.value(9).toDate().toString("yyyy-MM-dd");
-    int     mileage      = q.value(10).toInt();
-    QString plate        = q.value(11).toString();
-    QString vin          = q.value(12).toString();
-    QString model        = q.value(13).toString();
-    QString engine       = q.value(14).toString();
-    QString ownerName    = q.value(15).toString();
-    QString ownerPhone   = q.value(16).toString();
-    QString ownerAddr    = q.value(17).toString();
+    double  discount     = q.value(6).toDouble();
+    QString createdDate  = q.value(9).toDateTime().toString("yyyy-MM-dd");
+    QString repairDate   = q.value(10).toDate().toString("yyyy-MM-dd");
+    int     mileage      = q.value(11).toInt();
+    QString plate        = q.value(12).toString();
+    QString vin          = q.value(13).toString();
+    QString model        = q.value(14).toString();
+    QString engine       = q.value(15).toString();
+    QString ownerName    = q.value(16).toString();
+    QString ownerPhone   = q.value(17).toString();
+    QString ownerAddr    = q.value(18).toString();
     QString entryDate    = !repairDate.isEmpty() ? repairDate : createdDate;
 
     // ======================== 工时费明细 ========================
@@ -1174,7 +1303,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
         pq.prepare(
             "SELECT COALESCE(p.part_no, ''), wi.part_name, "
             "  COALESCE(NULLIF(p.spec,''), '个') AS unit, "
-            "  COUNT(*) AS qty, wi.unit_price, SUM(wi.subtotal) AS subtotal, "
+            "  SUM(wi.quantity) AS qty, wi.unit_price, SUM(wi.subtotal) AS subtotal, "
             "  COALESCE(MAX(p.purchase_price), 0) AS cost "
             "FROM t_workorder_item wi "
             "LEFT JOIN t_parts p ON p.id = wi.part_id "
@@ -1188,7 +1317,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
             QString partNo   = pq.value(0).toString();
             QString partName = pq.value(1).toString();
             QString unit     = pq.value(2).toString();
-            int     qty      = pq.value(3).toInt();
+            double  qty      = pq.value(3).toDouble();
             double  price    = pq.value(4).toDouble();
             double  sub      = pq.value(5).toDouble();
             double  cost     = pq.value(6).toDouble();
@@ -1207,7 +1336,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
                     .arg(partNo.toHtmlEscaped())
                     .arg(partName.toHtmlEscaped())
                     .arg(unit.toHtmlEscaped())
-                    .arg(qty)
+                    .arg(QString::number(qty))
                     .arg(price, 0, 'f', 2)
                     .arg(sub, 0, 'f', 2);
 
@@ -1223,7 +1352,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
                     .arg(partNo.toHtmlEscaped())
                     .arg(partName.toHtmlEscaped())
                     .arg(unit.toHtmlEscaped())
-                    .arg(qty)
+                    .arg(QString::number(qty))
                     .arg(QString("¥%1").arg(price, 0, 'f', 2))
                     .arg(QString("¥%1").arg(sub, 0, 'f', 2));
             } else {
@@ -1241,7 +1370,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
                     .arg(partNo.toHtmlEscaped())
                     .arg(partName.toHtmlEscaped())
                     .arg(unit.toHtmlEscaped())
-                    .arg(qty)
+                    .arg(QString::number(qty))
                     .arg(cost, 0, 'f', 2)
                     .arg(cost * qty, 0, 'f', 2)
                     .arg(price, 0, 'f', 2)
@@ -1250,7 +1379,8 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
         }
     }
 
-    double grandTotal = displayLabor + partsTotal + otherFee + mgmtFee;
+    // 总费用 = 各费用之和 − 优惠
+    double grandTotal = displayLabor + partsTotal + otherFee + mgmtFee - discount;
 
     // ======================== 大写金额转换 ========================
     auto toChineseUpper = [](double amount) -> QString {
@@ -1393,7 +1523,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
             "<tr><td colspan='5'>材料优惠</td><td colspan='2' class='r amt'>¥0.00</td></tr>"
             "<tr><td colspan='5'>优惠工时费</td><td colspan='2' class='r amt'>¥0.00</td></tr>"
             "<tr><td colspan='5'>各项维保优惠</td><td colspan='2' class='r amt'>¥0.00</td></tr>"
-            "<tr><td colspan='5'>总优惠</td><td colspan='2' class='r amt'>¥0.00</td></tr>"
+            "<tr><td colspan='5'>总优惠</td><td colspan='2' class='r amt'>%DISCOUNT%</td></tr>"
             "<tr class='big'>"
             "<td colspan='3' class='r'>总费用</td><td class='r amt'>%GRAND%</td>"
             "<td colspan='2' class='r'>应收款</td><td class='r recv amt'>%RECV%</td>"
@@ -1448,6 +1578,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
         html.replace("%MGM%",          fmt(mgmtFee));
         html.replace("%LFEE%",         fmt(displayLabor));
         html.replace("%GRAND%",        fmt(grandTotal));
+        html.replace("%DISCOUNT%",     fmt(discount));
         html.replace("%RECV%",         fmt(receivable));
         html.replace("%WORDS%",        amountInWords);
         html.replace("%SETTLER%",      esc(settlementPerson));
@@ -1569,7 +1700,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
         "<tr class='big'>"
         "<td class='lbl'>总费用</td><td align='right'>%GRAND%</td>"
         "<td></td>"
-        "<td class='lbl'>总优惠</td><td align='right'></td>"
+        "<td class='lbl'>总优惠</td><td align='right'>%DISCOUNT%</td>"
         "<td class='lbl'>应收款</td><td align='right'>%RECV%</td>"
         "</tr>"
         // --- 大写金额 ---
@@ -1651,6 +1782,7 @@ QString QuotePage::buildSettlementHtmlFor(int orderId, bool hideCost)
     html.replace("%MGM%",         fmt(mgmtFee));
     html.replace("%LFEE%",        fmt(displayLabor));
     html.replace("%GRAND%",       fmt(grandTotal));
+    html.replace("%DISCOUNT%",    fmt(discount));
     html.replace("%RECV%",        fmt(receivable));
     html.replace("%WORDS%",       amountInWords);
     html.replace("%SETTLER%",     esc(settlementPerson));

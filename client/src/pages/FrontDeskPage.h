@@ -58,6 +58,7 @@ private slots:
     void onSaveVehicleInfo();     // 保存车辆信息修改
     void onPartSearchTextChanged(const QString &text); // 备件搜索输入变化
     void onAddPart();             // 添加部件到列表
+    void onDeleteWorkOrder();     // 编辑态删除当前工单（无备件绑定时可删）
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -78,6 +79,8 @@ private:
     bool confirmLockWithPendingOrders(int vehicleId); // 锁定前检查该车辆是否有在派工中的工单
     void lockVehicle(int vehicleId);                  // 锁定车辆（唯一匹配与下拉选择共用）
     void selectPart(const QString &name, const QString &priceRaw); // 回填选中备件
+    void loadWorkOrderForEdit(int workorderId);       // 编辑态：加载旧工单全部信息到派工界面
+    void setPartsAreaMode(bool editMode);             // 备件区"预计备件选择/已出库备件"两种形态
 
     // 当前状态
     FrontDeskState m_state;
@@ -102,8 +105,10 @@ private:
     QLineEdit   *m_searchAnchorField;   // 本次车辆搜索触发来源输入框（多结果下拉锚定）
     SearchCompleter *m_vehicleCompleter; // 车辆多结果下拉
     int          m_lastVehicleCount;    // 最近一次实时搜索的匹配数（失焦时据此判断是否进新车录入）
-    int          m_mergeTargetWoid;     // 锁定车辆时选择的叠加目标工单ID（0=新建工单）
-    QString      m_mergeTargetOrderNo;  // 叠加目标工单号
+    int          m_mergeTargetWoid;     // 锁定车辆时选择的编辑目标工单ID（0=新建工单）
+    QString      m_mergeTargetOrderNo;  // 编辑目标工单号
+    bool         m_editMode = false;    // 当前是否在编辑已有工单（非新建）
+    double       m_editMatFee = 0;      // 编辑态：工单已绑定材料费合计（t_workorder_item.subtotal 之和）
     QSet<QWidget*> m_ghostFields;
 
     // ==================== 车辆信息展示（锁定后可编辑） ====================
@@ -170,11 +175,14 @@ private:
         double price;      // 定价
     };
     QList<SelectedPart> m_selectedParts;
+    QLabel        *m_lblPartTitle;    // 备件区标题（"预计备件选择"/"已出库备件"）
+    QLabel        *m_lblPartPriceLabel; // "定价:" 标签（编辑态隐藏）
     QLineEdit     *m_partSearch;     // 备件模糊搜索输入
     QLineEdit     *m_partPrice;      // 手动输入定价
     SearchCompleter *m_partCompleter; // 备件多结果下拉
     QList<QStringList> m_partRows;    // 备件搜索结果（name,spec,priceDisp,supplier,priceRaw）
     QPushButton   *m_btnAddPart;     // 添加到列表
+    QPushButton   *m_btnRemovePart;  // 删除选中备件
     QTableWidget  *m_partTable;      // 已选部件列表
     QLabel        *m_lblMatFee;      // 材料费显示（替代 m_spinMat）
     void refreshPartList();          // 刷新已选部件列表显示
@@ -184,6 +192,7 @@ private:
     QLabel         *m_lblTotal;
     QLabel         *m_lblFormulaFee;
     QPushButton    *m_btnCreate, *m_btnPrint;
+    QPushButton    *m_btnDeleteOrder;  // 编辑态删除工单（无备件绑定可删）
 };
 
 #endif // FRONTDESKPAGE_H

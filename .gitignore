@@ -1,0 +1,37 @@
+# ============ 构建产物 ============
+Makefile
+Makefile.Debug
+Makefile.Release
+.qmake.stash
+*.o
+*.a
+*.moc
+moc_*.cpp
+moc_*.h
+moc_predefs.h
+object_script.*
+
+# ============ 构建目录（.o / exe 等中间产物）============
+/build/
+/build_mysql_driver/
+server/build/
+server/release/
+server/debug/
+server/tools/DbSetup/build/
+server/tools/DbSetup/release/
+server/tools/DbSetup/debug/
+client/build/
+client/release/
+client/debug/
+
+# ============ 临时 / 缓存 / 备份 ============
+_scratch/
+backup/
+*.msu
+*.msu.x
+
+# ============ Claude 工作目录 ============
+.claude/
+
+# ============ 运行时配置（含数据库密码，不入库；模板见 config.ini.example）============
+config.ini

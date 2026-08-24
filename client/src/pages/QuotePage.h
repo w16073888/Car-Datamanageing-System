@@ -28,6 +28,7 @@ private slots:
     void onNotifyBilling();     // 通知提单: 已派工 → 待提单
     void onCancelNotify();      // 取消提单: 待提单 → 已派工
     void onSettle();            // 结算: 已提单 → 已结算
+    void onReverseSettle();     // 反结算: 已结算 → 已提单
     void onSaveToPdf();         // 保存结算单到PDF
     void onPrintSettlement();   // 打印结算单
     void onFeeEditChanged();    // 其他费/管理费编辑时刷新
@@ -57,11 +58,13 @@ private:
     QPushButton *m_btnSettle;          // 结算（已提单时显示）
     QPushButton *m_btnSavePdf;         // 保存到PDF（已提单时显示）
     QPushButton *m_btnPrint;           // 打印结算单（已提单时显示）
+    QPushButton *m_btnReverseSettle;   // 反结算（已结算时显示）
     QPushButton *m_btnSaveEdit;        // 保存修改（可编辑状态下显示）
 
     // ---- 费用编辑控件 ----
     QDoubleSpinBox *m_editOtherFee;    // 其他费编辑
     QDoubleSpinBox *m_editMgmtFee;     // 管理费编辑
+    QDoubleSpinBox *m_editDiscount;    // 优惠金额编辑
     QLabel *m_lblEditLaborFee;         // 工时费合计显示（编辑模式下由表格直接改）
 
     // ---- 内部状态 ----

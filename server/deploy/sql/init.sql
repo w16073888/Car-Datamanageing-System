@@ -7,7 +7,11 @@
 --     DEFAULT COLLATE utf8mb4_unicode_ci;
 --   USE garagedb;
 --   SOURCE init.sql;
+-- 注意: 脚本内第一句 SET NAMES utf8mb4 必须保留，
+--   否则在默认 GBK 连接下所有中文会乱码导致建表/插数据失败。
 -- ============================================================
+
+SET NAMES utf8mb4;
 
 -- 清空旧表（按依赖顺序反向删除）
 DROP TABLE IF EXISTS t_system_log;
@@ -44,10 +48,7 @@ CREATE TABLE t_employee (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='员工表';
 
 INSERT INTO t_employee (employee_id, name, password, position, phone) VALUES
-('ADMIN001', '系统管理员', 'admin123', '经理', '13800000000'),
-('SV0001',   '服务顾问张三', '123456',   '前台', '13800000001'),
-('TECH001',  '技师李四',     '123456',   '库管', '13800000002'),
-('WH001',    '库管王五',     '123456',   '客服', '13800000003');
+('1', '系统管理员', '123456', '经理', '');
 
 -- ============================================================
 -- 2. 车辆档案表
@@ -88,7 +89,7 @@ CREATE TABLE t_parts (
     part_no         VARCHAR(50)     NOT NULL UNIQUE             COMMENT '备件编号',
     name            VARCHAR(100)    NOT NULL                   COMMENT '备件名称',
     spec            VARCHAR(100)                                COMMENT '规格型号(可选)',
-    stock           INT             NOT NULL DEFAULT 0         COMMENT '当前库存量(缓存)',
+    stock           DECIMAL(10,3)   NOT NULL DEFAULT 0         COMMENT '可出库数量(缓存,在库实例剩余量之和)',
     purchase_price  DECIMAL(10,2)                               COMMENT '进货价(可选)',
     sale_price      DECIMAL(10,2)                               COMMENT '销售价(可选)',
     supplier        VARCHAR(100)                                COMMENT '供应商(可选)',
@@ -120,6 +121,7 @@ CREATE TABLE t_workorder (
     material_fee    DECIMAL(10,2)   DEFAULT 0.00              COMMENT '材料费',
     other_fee       DECIMAL(10,2)   DEFAULT 0.00              COMMENT '其它费',
     management_fee  DECIMAL(10,2)   DEFAULT 0.00              COMMENT '管理费',
+    discount        DECIMAL(10,2)   NOT NULL DEFAULT 0.00     COMMENT '优惠金额',
     total_amount    DECIMAL(10,2)   DEFAULT 0.00              COMMENT '总金额',
     deposit         DECIMAL(10,2)   DEFAULT 0.00              COMMENT '订金',
     shift           VARCHAR(10)                                COMMENT '班别(白班/夜班)',
@@ -202,6 +204,7 @@ CREATE TABLE t_part_instance (
     unit_sale_price     DECIMAL(10,2)   NULL                       COMMENT '销售单价',
     recipient           VARCHAR(50)     NULL                       COMMENT '领取人姓名',
     remark              VARCHAR(255)    NULL                       COMMENT '备注',
+    usage_log           TEXT            NULL                       COMMENT '使用去向记录(每行一条,追加)',
     created_at          DATETIME        DEFAULT CURRENT_TIMESTAMP   COMMENT '创建时间',
     updated_at          DATETIME        DEFAULT CURRENT_TIMESTAMP
                                         ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -226,7 +229,7 @@ CREATE TABLE t_workorder_item (
     part_id         INT                                        COMMENT '关联备件ID(NULL表示非备件项目)',
     part_instance_id INT                                       COMMENT '关联备件实例ID',
     part_name       VARCHAR(100)    NOT NULL                   COMMENT '备件名称',
-    quantity        INT             NOT NULL DEFAULT 1         COMMENT '数量',
+    quantity        DECIMAL(10,3)   NOT NULL DEFAULT 1         COMMENT '数量(支持小数)',
     unit_price      DECIMAL(10,2)   NOT NULL                   COMMENT '单价',
     subtotal        DECIMAL(10,2)   GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT '小计(自动计算)',
     item_type       ENUM('材料','工时') DEFAULT '材料'         COMMENT '项目类型',
@@ -246,7 +249,7 @@ CREATE TABLE t_quote_item (
     id              INT             PRIMARY KEY AUTO_INCREMENT  COMMENT '报价ID',
     workorder_id    INT             NOT NULL                   COMMENT '关联工单ID',
     part_name       VARCHAR(100)    NOT NULL                   COMMENT '备件名称',
-    quantity        INT             NOT NULL DEFAULT 1         COMMENT '数量',
+    quantity        DECIMAL(10,3)   NOT NULL DEFAULT 1         COMMENT '数量(支持小数)',
     unit_price      DECIMAL(10,2)   NOT NULL                   COMMENT '单价',
     subtotal        DECIMAL(10,2)   GENERATED ALWAYS AS (quantity * unit_price) STORED COMMENT '小计(自动计算)',
     created_at      DATETIME        DEFAULT CURRENT_TIMESTAMP   COMMENT '创建时间',
@@ -262,7 +265,7 @@ CREATE TABLE t_inventory_log (
     id              INT             PRIMARY KEY AUTO_INCREMENT  COMMENT '流水ID',
     part_id         INT             NOT NULL                   COMMENT '关联备件ID',
     part_instance_id INT                                       COMMENT '关联备件实例ID',
-    quantity        INT             NOT NULL                   COMMENT '数量(正=入库,负=出库)',
+    quantity        DECIMAL(10,3)   NOT NULL                   COMMENT '数量(正=入库,负=出库,支持小数)',
     unit_price      DECIMAL(10,2)                              COMMENT '单价(出入库时的价格)',
     total_price     DECIMAL(10,2)                              COMMENT '总价',
     operation_type  ENUM('采购入库','维修出库','备件退库','采购退货','盘点调整','材料结算')
@@ -306,7 +309,7 @@ CREATE TABLE t_part_purchase (
     part_id         INT             NOT NULL                   COMMENT '备件ID',
     supplier        VARCHAR(100)                               COMMENT '供应商/厂家',
     batch_no        VARCHAR(50)                                COMMENT '批次号',
-    quantity        INT             NOT NULL                   COMMENT '采购数量',
+    quantity        DECIMAL(10,3)   NOT NULL                   COMMENT '采购数量(整件)',
     unit_cost       DECIMAL(10,2)   NOT NULL                   COMMENT '进货单价',
     total_cost      DECIMAL(10,2)   NOT NULL                   COMMENT '总成本',
     purchase_date   DATE                                       COMMENT '采购日期',
@@ -339,6 +342,7 @@ CREATE TABLE t_maintenance_history (
     material_fee     DECIMAL(10,2) DEFAULT 0.00      COMMENT '材料费',
     other_fee        DECIMAL(10,2) DEFAULT 0.00      COMMENT '其它费',
     management_fee   DECIMAL(10,2) DEFAULT 0.00      COMMENT '管理费',
+    discount         DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '优惠金额',
     deposit          DECIMAL(10,2) DEFAULT 0.00      COMMENT '订金(已收)',
     parts_summary    TEXT                            COMMENT '备件使用摘要(名称x数量, ...)',
     repair_summary   TEXT                            COMMENT '维修项目摘要(机电/钣金/喷漆条目及价格)',
@@ -403,7 +407,10 @@ SELECT
     p.sale_price,
     p.warranty_period,
     p.applicable_model,
-    COUNT(CASE WHEN i.status = '在库' THEN 1 END)   AS stock_in_warehouse,
+    ROUND(SUM(CASE WHEN i.status = '在库' THEN
+          (1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi
+                         WHERE wi.part_instance_id = i.id AND wi.item_type = '材料'), 0))
+          ELSE 0 END), 3)                           AS stock_in_warehouse,
     COUNT(CASE WHEN i.status = '已领出' THEN 1 END) AS stock_checked_out,
     COUNT(CASE WHEN i.status = '已安装' THEN 1 END) AS stock_installed,
     COUNT(CASE WHEN i.status NOT IN ('已退货') THEN 1 END) AS stock_total
