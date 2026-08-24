@@ -5,6 +5,7 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QLabel>
+#include <QLineEdit>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
@@ -38,6 +39,46 @@ SettingsDialog::SettingsDialog(QWidget *parent)
         tip->setWordWrap(true);
         tip->setStyleSheet("color:#7f8c8d;font-size:12px;");
         fl->addWidget(tip);
+
+        // ---- 办公地点：结算单底部地址 ----
+        auto *addrRow = new QHBoxLayout;
+        auto *addrLbl = new QLabel("办公地点：", pageFront);
+        addrLbl->setStyleSheet("font-size:14px;");
+        m_editOfficeAddr = new QLineEdit(pageFront);
+        m_editOfficeAddr->setText(AppSettings::officeAddress());
+        m_editOfficeAddr->setPlaceholderText("例如：成都市双流区航都大街二段370号");
+        m_editOfficeAddr->setClearButtonEnabled(true);
+        addrRow->addWidget(addrLbl);
+        addrRow->addWidget(m_editOfficeAddr, 1);
+        fl->addLayout(addrRow);
+
+        auto *addrTip = new QLabel(
+            "该地址显示在结算单最底部（打印/预览/PDF 均生效）。\n"
+            "提示：本设置保存在本客户端（client_settings.ini），多台电脑需分别设置。",
+            pageFront);
+        addrTip->setWordWrap(true);
+        addrTip->setStyleSheet("color:#7f8c8d;font-size:12px;");
+        fl->addWidget(addrTip);
+
+        // ---- 服务电话：结算单底部与地址同行 ----
+        auto *phoneRow = new QHBoxLayout;
+        auto *phoneLbl = new QLabel("服务电话：", pageFront);
+        phoneLbl->setStyleSheet("font-size:14px;");
+        m_editServicePhone = new QLineEdit(pageFront);
+        m_editServicePhone->setText(AppSettings::servicePhone());
+        m_editServicePhone->setPlaceholderText("例如：028-62xxxxxx");
+        m_editServicePhone->setClearButtonEnabled(true);
+        phoneRow->addWidget(phoneLbl);
+        phoneRow->addWidget(m_editServicePhone, 1);
+        fl->addLayout(phoneRow);
+
+        auto *phoneTip = new QLabel(
+            "该电话显示在结算单底部地址同一行（打印/预览/PDF 均生效），为空时显示占位 028-________。\n"
+            "提示：本设置保存在本客户端（client_settings.ini），多台电脑需分别设置。",
+            pageFront);
+        phoneTip->setWordWrap(true);
+        phoneTip->setStyleSheet("color:#7f8c8d;font-size:12px;");
+        fl->addWidget(phoneTip);
         fl->addStretch();
 
         m_tabs->addTab(pageFront, "前台业务设置");
@@ -60,6 +101,8 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     connect(btnCancel, &QPushButton::clicked, this, &QDialog::reject);
     connect(btnOk, &QPushButton::clicked, this, [this]() {
         AppSettings::setSimpleMode(m_chkSimpleMode->isChecked());
+        AppSettings::setOfficeAddress(m_editOfficeAddr->text().trimmed());
+        AppSettings::setServicePhone(m_editServicePhone->text().trimmed());
         accept();
     });
 }

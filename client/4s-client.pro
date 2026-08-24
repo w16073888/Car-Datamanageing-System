@@ -43,7 +43,8 @@ SOURCES += \
     src/pages/ChangePasswordPage.cpp \
     src/widgets/DateRangeWidget.cpp \
     src/widgets/SearchCompleter.cpp \
-    src/utils/XlsxExporter.cpp
+    src/utils/XlsxExporter.cpp \
+    src/utils/PrintUtil.cpp
 
 HEADERS += \
     mainwindow.h \
@@ -74,7 +75,8 @@ HEADERS += \
     src/pages/ChangePasswordPage.h \
     src/widgets/DateRangeWidget.h \
     src/widgets/SearchCompleter.h \
-    src/utils/XlsxExporter.h
+    src/utils/XlsxExporter.h \
+    src/utils/PrintUtil.h
 
 # 包含路径
 INCLUDEPATH += src

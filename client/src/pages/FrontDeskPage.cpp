@@ -1,8 +1,10 @@
 #include "FrontDeskPage.h"
 #include "database/Session.h"
+#include "core/AppSettings.h"
 #include "remote/RemoteQuery.h"
 #include "remote/RemoteDb.h"
 #include "remote/SqlUtil.h"
+#include "utils/PrintUtil.h"
 
 #include <QJsonArray>
 #include <QJsonValue>
@@ -116,7 +118,7 @@ QList<QWidget*> FrontDeskPage::navFullChain() const
     if (m_state == STATE_SEARCH) {
         chain = { m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel };
     } else if (m_state == STATE_NEW_CAR) {
-        chain = { m_nPlate, m_nVin, m_nEngine, m_nModel, m_nColor, m_nFuel, m_nTrans,
+        chain = { m_nPlate, m_nVin, m_nEngine, m_nBrand, m_nModel, m_nColor, m_nFuel, m_nTrans,
                   m_nOwner, m_nPhone, m_nAddress, m_nPurchase };
     } else if (m_state == STATE_DISPATCH) {
         // 报修行按类型顺序（机电 → 钣金 → 喷漆），内容+费用各占一个输入位；
@@ -141,7 +143,7 @@ QList<QWidget*> FrontDeskPage::navTextChain() const
     if (m_state == STATE_SEARCH) {
         chain = { m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel };
     } else if (m_state == STATE_NEW_CAR) {
-        chain = { m_nPlate, m_nVin, m_nEngine, m_nOwner, m_nPhone, m_nAddress };
+        chain = { m_nPlate, m_nVin, m_nEngine, m_nBrand, m_nModel, m_nOwner, m_nPhone, m_nAddress };
     } else if (m_state == STATE_DISPATCH) {
         QStringList typeOrder = { "机电", "钣金", "喷漆" };
         QList<const ItemRow*> ordered;
@@ -287,6 +289,10 @@ void FrontDeskPage::setupUI()
     m_sOwner = new QLineEdit;  m_sOwner->setPlaceholderText("车主");
     m_sPhone = new QLineEdit;  m_sPhone->setPlaceholderText("联系电话");
     m_sModel = new QLineEdit;  m_sModel->setPlaceholderText("车型");
+    // 无障碍标识（供 UI 自动化/辅助功能定位，不改变行为）
+    m_sPlate->setAccessibleName("sPlate");  m_sVin->setAccessibleName("sVin");
+    m_sEngine->setAccessibleName("sEngine"); m_sOwner->setAccessibleName("sOwner");
+    m_sPhone->setAccessibleName("sPhone"); m_sModel->setAccessibleName("sModel");
 
     // 最小宽度设置（控制在窗口内不产生横向滚动条）
     m_sPlate->setMinimumWidth(200);
@@ -330,7 +336,8 @@ void FrontDeskPage::setupUI()
         e = new QLineEdit;
         e->setStyleSheet(sEdit);
     };
-    mkEdit(m_dispPlate); mkEdit(m_dispVin); mkEdit(m_dispEngine); mkEdit(m_dispModel);
+    mkEdit(m_dispPlate); mkEdit(m_dispVin); mkEdit(m_dispEngine);
+    mkEdit(m_dispBrand); mkEdit(m_dispModel);
     mkEdit(m_dispOwner); mkEdit(m_dispPhone); mkEdit(m_dispAddress);
     m_dispColor = new QComboBox; m_dispColor->setEditable(true);
     m_dispColor->addItems({"","白","黑","银","红","蓝","绿","灰","黄","棕","橙","紫"});
@@ -349,6 +356,7 @@ void FrontDeskPage::setupUI()
     m_dispPlate->setFixedWidth(130);
     m_dispVin->setFixedWidth(210);
     m_dispEngine->setFixedWidth(150);
+    m_dispBrand->setFixedWidth(150);
     m_dispModel->setFixedWidth(150);
     m_dispOwner->setFixedWidth(90);
     m_dispPhone->setFixedWidth(140);
@@ -361,6 +369,7 @@ void FrontDeskPage::setupUI()
         row->addWidget(L("车牌:")); row->addWidget(m_dispPlate);
         row->addWidget(L("VIN:"));  row->addWidget(m_dispVin);
         row->addWidget(L("发动机:")); row->addWidget(m_dispEngine);
+        row->addWidget(L("公司:")); row->addWidget(m_dispBrand);
         row->addWidget(L("车型:")); row->addWidget(m_dispModel);
         row->addStretch();
         igOuter->addLayout(row);
@@ -411,8 +420,8 @@ void FrontDeskPage::setupUI()
     m_nPlate = new QLineEdit;   m_nPlate->setPlaceholderText("*必填");
     m_nVin   = new QLineEdit;
     m_nEngine = new QLineEdit;
-    m_nModel = new QComboBox;   m_nModel->setEditable(true);
-    m_nModel->lineEdit()->setPlaceholderText("*必填");
+    m_nBrand = new QLineEdit;   m_nBrand->setPlaceholderText("公司/厂家");
+    m_nModel = new QLineEdit;   m_nModel->setPlaceholderText("*必填");
     m_nOwner = new QLineEdit;   m_nOwner->setPlaceholderText("*必填");
     m_nPhone = new QLineEdit;   m_nPhone->setPlaceholderText("*必填");
     m_nAddress = new QLineEdit;
@@ -425,23 +434,26 @@ void FrontDeskPage::setupUI()
     m_nPlate->setMinimumWidth(200);
     m_nVin->setMinimumWidth(400);
     m_nEngine->setMinimumWidth(200);
+    m_nBrand->setMinimumWidth(200);
     m_nOwner->setMinimumWidth(100);
     m_nPhone->setMinimumWidth(200);
     m_nModel->setMinimumWidth(400);
 
     // 安装回车导航事件过滤器
     for (auto *w : {static_cast<QWidget*>(m_nPlate),static_cast<QWidget*>(m_nVin),static_cast<QWidget*>(m_nEngine),
-                    static_cast<QWidget*>(m_nModel),static_cast<QWidget*>(m_nColor),static_cast<QWidget*>(m_nFuel),
-                    static_cast<QWidget*>(m_nTrans),static_cast<QWidget*>(m_nOwner),static_cast<QWidget*>(m_nPhone),
-                    static_cast<QWidget*>(m_nAddress),static_cast<QWidget*>(m_nPurchase)})
+                    static_cast<QWidget*>(m_nBrand),static_cast<QWidget*>(m_nModel),static_cast<QWidget*>(m_nColor),
+                    static_cast<QWidget*>(m_nFuel),static_cast<QWidget*>(m_nTrans),static_cast<QWidget*>(m_nOwner),
+                    static_cast<QWidget*>(m_nPhone),static_cast<QWidget*>(m_nAddress),static_cast<QWidget*>(m_nPurchase)})
         w->installEventFilter(this);
 
     ng->addWidget(L("车牌*:"),0,0); ng->addWidget(m_nPlate,0,1);
     ng->addWidget(L("VIN:"),0,2);   ng->addWidget(m_nVin,0,3);
     ng->addWidget(L("发动机:"),0,4); ng->addWidget(m_nEngine,0,5);
-    // 第1行：车型* + 颜色 + 油类 + 变速箱 四合一
+    // 第1行：公司 + 车型* + 颜色 + 油类 + 变速箱（公司/车型共享原车型输入区域）
     {
         QHBoxLayout *row1 = new QHBoxLayout;
+        row1->addWidget(L("公司:"));
+        row1->addWidget(m_nBrand, 1);
         row1->addWidget(L("车型*:"));
         row1->addWidget(m_nModel, 1);
         row1->addWidget(L("颜色:"));
@@ -582,6 +594,7 @@ void FrontDeskPage::setupUI()
         // 备件搜索（模糊搜索+下拉）
         m_partSearch = new QLineEdit;
         m_partSearch->setPlaceholderText("搜索备件(编号/名称/供应商/型号)");
+        m_partSearch->setAccessibleName("partSearch");   // 无障碍标识（供 UI 自动化定位）
         rightSide->addWidget(m_partSearch);
 
         // 定价输入
@@ -753,6 +766,27 @@ void FrontDeskPage::setupUI()
         if (idx >= 0 && idx < m_partRows.size())
             selectPart(m_partRows[idx][0], m_partRows[idx][4]); // name, priceRaw
     });
+
+    // 新车录入：公司/车型 模糊搜索下拉（非模态，同车辆查找/备件搜索模式）
+    m_brandCompleter = new SearchCompleter(this);
+    m_brandCompleter->setEdit(m_nBrand);
+    connect(m_brandCompleter, &SearchCompleter::selected, this, [this](int idx) {
+        if (idx >= 0 && idx < m_brandRows.size()) {
+            QSignalBlocker blocker(m_nBrand);   // 回填时抑制 textChanged，避免触发二次搜索
+            m_nBrand->setText(m_brandRows[idx][0]);
+        }
+    });
+    connect(m_nBrand, &QLineEdit::textChanged, this, &FrontDeskPage::onBrandLiveSearch);
+
+    m_modelCompleter = new SearchCompleter(this);
+    m_modelCompleter->setEdit(m_nModel);
+    connect(m_modelCompleter, &SearchCompleter::selected, this, [this](int idx) {
+        if (idx >= 0 && idx < m_modelRows.size()) {
+            QSignalBlocker blocker(m_nModel);   // 回填时抑制 textChanged，避免触发二次搜索
+            m_nModel->setText(m_modelRows[idx][0]);
+        }
+    });
+    connect(m_nModel, &QLineEdit::textChanged, this, &FrontDeskPage::onModelLiveSearch);
 
     loadCombos(); resetForm();
     setState(STATE_SEARCH);   // 初始：仅显示车辆查找
@@ -1145,8 +1179,77 @@ void FrontDeskPage::onVehicleSearchFinalize()
     m_nOwner->setText(m_sOwner->text().trimmed());
     m_nPhone->setText(m_sPhone->text().trimmed());
     if (!m_sModel->text().trimmed().isEmpty())
-        m_nModel->setEditText(m_sModel->text().trimmed());
+        m_nModel->setText(m_sModel->text().trimmed());
     setState(STATE_NEW_CAR);
+}
+
+// ============================================================
+// onBrandLiveSearch / onModelLiveSearch — 新车录入「公司」「车型」逐键模糊搜索
+//   复用 SearchCompleter 非模态下拉（与车辆查找/备件搜索一致），
+//   无匹配时保留自由文本（新车可录入未收录过的公司/车型）。
+// ============================================================
+void FrontDeskPage::onBrandLiveSearch()
+{
+    m_brandRows.clear();
+    m_brandCompleter->hideDropdown();
+    const QString t = m_nBrand->text().trimmed();
+    if (t.isEmpty())
+        return;
+
+    RemoteQuery q;
+    q.prepare("SELECT DISTINCT brand FROM t_vehicle "
+              "WHERE brand IS NOT NULL AND TRIM(brand) <> '' AND "
+              + SqlUtil::likeCond("brand", ":kw") +
+              " ORDER BY brand LIMIT 20");
+    q.bindValue(":kw", SqlUtil::likePattern(t));
+    if (!q.exec())
+        return;
+
+    QList<QStringList> rows;
+    QList<QVariant> ids;
+    while (q.next()) {
+        const QString v = q.value(0).toString().trimmed();
+        if (v.isEmpty()) continue;
+        rows << QStringList{v};
+        ids << rows.size() - 1;
+    }
+    if (rows.isEmpty())
+        return;
+    m_brandRows = rows;
+    m_brandCompleter->setResults(rows, ids);
+    m_brandCompleter->showDropdown();
+}
+
+void FrontDeskPage::onModelLiveSearch()
+{
+    m_modelRows.clear();
+    m_modelCompleter->hideDropdown();
+    const QString t = m_nModel->text().trimmed();
+    if (t.isEmpty())
+        return;
+
+    RemoteQuery q;
+    q.prepare("SELECT DISTINCT model FROM t_vehicle "
+              "WHERE model IS NOT NULL AND TRIM(model) <> '' AND "
+              + SqlUtil::likeCond("model", ":kw") +
+              " ORDER BY model LIMIT 20");
+    q.bindValue(":kw", SqlUtil::likePattern(t));
+    if (!q.exec())
+        return;
+
+    QList<QStringList> rows;
+    QList<QVariant> ids;
+    while (q.next()) {
+        const QString v = q.value(0).toString().trimmed();
+        if (v.isEmpty()) continue;
+        rows << QStringList{v};
+        ids << rows.size() - 1;
+    }
+    if (rows.isEmpty())
+        return;
+    m_modelRows = rows;
+    m_modelCompleter->setResults(rows, ids);
+    m_modelCompleter->showDropdown();
 }
 
 // ============================================================
@@ -1166,6 +1269,12 @@ void FrontDeskPage::lockVehicle(int vid)
     m_lockedVid = vid;
     m_foundVid = 0;
     clearGhost();
+    // 锁定车辆：清空上一辆车的预计备件列表与定价搜索输入（编辑已有工单时由 loadWorkOrderForEdit 重新回填）
+    m_selectedParts.clear();
+    m_partTable->setRowCount(0);
+    m_partSearch->clear();
+    m_partPrice->clear();
+    onFeeChanged();   // 刷新材料费/合计显示（清空后为 0）
     fillVehicleData(vid);
     m_lblStatus->setText("已锁定"); m_lblStatus->setStyleSheet("color:#27ae60;font-weight:bold;");
     m_btnMaintenanceHistory->setVisible(true);
@@ -1189,7 +1298,7 @@ void FrontDeskPage::fillVehicleData(int vid)
     qDebug() << "[fillVehicleData] 被调用, vid =" << vid;
 
     RemoteQuery q;
-    q.prepare("SELECT v.plate_number,v.vin,v.engine_number,v.model,"
+    q.prepare("SELECT v.plate_number,v.vin,v.engine_number,v.model,v.brand,"
               "v.color,v.fuel_type,v.transmission,v.current_mileage,"
               "v.purchase_date,v.owner_name,v.owner_phone,v.owner_address "
               "FROM t_vehicle v "
@@ -1204,21 +1313,22 @@ void FrontDeskPage::fillVehicleData(int vid)
 
     qDebug() << "[fillVehicleData] 车牌:" << q.value(0).toString()
              << " VIN:" << q.value(1).toString()
-             << " 车主:" << q.value(9).toString()
-             << " 电话:" << q.value(10).toString();
+             << " 车主:" << q.value(10).toString()
+             << " 电话:" << q.value(11).toString();
 
     m_dispPlate->setText(q.value(0).toString());
     m_dispVin->setText(q.value(1).toString());
     m_dispEngine->setText(q.value(2).toString());
     m_dispModel->setText(q.value(3).toString());
-    m_dispColor->setCurrentText(q.value(4).toString());
-    m_dispFuel->setCurrentText(q.value(5).toString());
-    m_dispTrans->setCurrentText(q.value(6).toString());
-    m_spinMileage->setValue(q.value(7).toInt());
-    m_dispPurchase->setDate(q.value(8).toDate());
-    m_dispOwner->setText(q.value(9).toString());
-    m_dispPhone->setText(q.value(10).toString());
-    m_dispAddress->setText(q.value(11).toString());
+    m_dispBrand->setText(q.value(4).toString());
+    m_dispColor->setCurrentText(q.value(5).toString());
+    m_dispFuel->setCurrentText(q.value(6).toString());
+    m_dispTrans->setCurrentText(q.value(7).toString());
+    m_spinMileage->setValue(q.value(8).toInt());
+    m_dispPurchase->setDate(q.value(9).toDate());
+    m_dispOwner->setText(q.value(10).toString());
+    m_dispPhone->setText(q.value(11).toString());
+    m_dispAddress->setText(q.value(12).toString());
     m_btnMaintenanceHistory->setVisible(true);
 
     qDebug() << "[fillVehicleData] 填充完成, m_dispPlate->text() =" << m_dispPlate->text();
@@ -1533,24 +1643,15 @@ void FrontDeskPage::onDeleteWorkOrder()
 }
 
 // ============================================================
-// 刷新新车录入的车型下拉列表（去重加载历史登记中出现过的车型）
+// 刷新新车录入的车型/公司输入（历史值通过 onModelLiveSearch/onBrandLiveSearch
+// 逐键模糊搜索即时加载，这里仅清空输入，避免残留上一次搜索的文字）
 // ============================================================
 void FrontDeskPage::refreshCarModelList()
 {
+    m_nBrand->clear();
     m_nModel->clear();
-    RemoteQuery q;
-    q.prepare("SELECT DISTINCT model FROM t_vehicle "
-              "WHERE model IS NOT NULL AND TRIM(model) <> '' "
-              "ORDER BY model");
-    if (q.exec()) {
-        while (q.next()) {
-            const QString m = q.value(0).toString().trimmed();
-            if (!m.isEmpty())
-                m_nModel->addItem(m);
-        }
-    }
-    m_nModel->clearEditText();
-    m_nModel->setCurrentIndex(-1);
+    m_brandCompleter->hideDropdown();
+    m_modelCompleter->hideDropdown();
 }
 
 // ============================================================
@@ -1559,10 +1660,12 @@ void FrontDeskPage::refreshCarModelList()
 void FrontDeskPage::resetNewCarForm()
 {
     m_nPlate->clear(); m_nVin->clear(); m_nEngine->clear();
-    m_nModel->clearEditText(); m_nModel->setCurrentIndex(-1);
+    m_nBrand->clear(); m_nModel->clear();
     m_nOwner->clear(); m_nPhone->clear(); m_nAddress->clear();
     m_nColor->setCurrentIndex(0); m_nFuel->setCurrentIndex(0); m_nTrans->setCurrentIndex(0);
     m_nPurchase->setDate(QDate::currentDate());
+    m_brandCompleter->hideDropdown();
+    m_modelCompleter->hideDropdown();
 }
 
 // ============================================================
@@ -1621,7 +1724,7 @@ void FrontDeskPage::onSaveNewCar()
     QString np = m_nPlate->text().trimmed();
     QString ow = m_nOwner->text().trimmed();
     QString ph = m_nPhone->text().trimmed();
-    QString md = m_nModel->currentText().trimmed();
+    QString md = m_nModel->text().trimmed();
     if (np.isEmpty() || ow.isEmpty() || ph.isEmpty() || md.isEmpty()) {
         QMessageBox::warning(this, "提示", "请填写车牌号、车主、电话、车型等必填信息");
         return;
@@ -1630,14 +1733,15 @@ void FrontDeskPage::onSaveNewCar()
     // 新车+车主 在一个事务内写入（经 4s-server 的 transaction 命令原子执行）
     QJsonArray steps;
     steps.append(RemoteDb::step(
-        "INSERT INTO t_vehicle (plate_number,vin,engine_number,model,purchase_date,"
+        "INSERT INTO t_vehicle (plate_number,vin,engine_number,model,brand,purchase_date,"
         "color,fuel_type,transmission) "
-        "VALUES (:p,:v,:e,:m,:pd,:col,:fuel,:trans)",
+        "VALUES (:p,:v,:e,:m,:brand,:pd,:col,:fuel,:trans)",
         QJsonObject{
             { ":p", np },
             { ":v", RemoteDb::v(m_nVin->text().trimmed().isEmpty() ? QVariant(QString()) : m_nVin->text().trimmed()) },
             { ":e", RemoteDb::v(m_nEngine->text().trimmed().isEmpty() ? QVariant(QString()) : m_nEngine->text().trimmed()) },
             { ":m", md },
+            { ":brand", RemoteDb::v(m_nBrand->text().trimmed().isEmpty() ? QVariant(QString()) : m_nBrand->text().trimmed()) },
             { ":pd", RemoteDb::v(m_nPurchase->date()) },
             { ":col", RemoteDb::v(m_nColor->currentText().isEmpty() ? QVariant(QString()) : m_nColor->currentText()) },
             { ":fuel", RemoteDb::v(m_nFuel->currentText().isEmpty() ? QVariant(QString()) : m_nFuel->currentText()) },
@@ -1719,13 +1823,14 @@ void FrontDeskPage::onSaveVehicleInfo()
     QJsonArray steps;
     steps.append(RemoteDb::step(
         "UPDATE t_vehicle SET plate_number=:p, vin=:v, engine_number=:e, "
-        "model=:m, color=:col, fuel_type=:fuel, transmission=:trans, "
+        "model=:m, brand=:brand, color=:col, fuel_type=:fuel, transmission=:trans, "
         "purchase_date=:pd, current_mileage=:mile WHERE id=:id",
         QJsonObject{
             { ":p", m_dispPlate->text().trimmed() },
             { ":v", RemoteDb::v(m_dispVin->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispVin->text().trimmed()) },
             { ":e", RemoteDb::v(m_dispEngine->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispEngine->text().trimmed()) },
             { ":m", m_dispModel->text().trimmed() },
+            { ":brand", m_dispBrand->text().trimmed() },
             { ":col", RemoteDb::v(m_dispColor->currentText().isEmpty() ? QVariant(QString()) : m_dispColor->currentText()) },
             { ":fuel", RemoteDb::v(m_dispFuel->currentText().isEmpty() ? QVariant(QString()) : m_dispFuel->currentText()) },
             { ":trans", RemoteDb::v(m_dispTrans->currentText().isEmpty() ? QVariant(QString()) : m_dispTrans->currentText()) },
@@ -2256,10 +2361,15 @@ void FrontDeskPage::onPrintWorkOrder()
 }
 
 // ============================================================
-// buildQuoteHtml — 构建报价单HTML内容（供打印和PDF导出复用）
 // ============================================================
-QString FrontDeskPage::buildQuoteHtml()
+// buildQuoteSections — 报价单新版式分区块（与结算单同款：方案B拼版，纵向铺满）
+//   区块：头部/车辆信息/车主信息/工单信息/(报修描述)/维修项目(grow)/预计部件(grow)/
+//         费用汇总/底部（工号+地址+服务电话+结算人/结算日期/收款人签字）
+// ============================================================
+QList<SettlementSection> FrontDeskPage::buildQuoteSections()
 {
+    QList<SettlementSection> out;
+
     // ============ 1. 维修项目明细（机电/钣金/喷漆） ============
     QString repairRows;
     double laborTotal = 0;
@@ -2274,10 +2384,12 @@ QString FrontDeskPage::buildQuoteHtml()
         if (row.type == "机电")      techName = m_mechTech->currentText();
         else if (row.type == "钣金") techName = m_bodyTech->currentText();
         else if (row.type == "喷漆") techName = m_paintTech->currentText();
-        repairRows += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td align='right'>¥%4</td></tr>")
-                .arg(row.type, techName.isEmpty() ? "-" : techName,
-                     cont.isEmpty() ? "-" : cont)
-                .arg(fee, 0, 'f', 2);
+        repairRows += QString("<tr><td class='c'>%1</td><td class='c'>%2</td>"
+                              "<td>%3</td><td class='amt'>%4</td></tr>")
+                .arg(PrintUtil::esc(row.type))
+                .arg(PrintUtil::esc(techName.isEmpty() ? "-" : techName))
+                .arg(PrintUtil::esc(cont.isEmpty() ? "-" : cont))
+                .arg(PrintUtil::money(fee));
     }
 
     // ============ 2. 费用数据 ============
@@ -2286,19 +2398,18 @@ QString FrontDeskPage::buildQuoteHtml()
     double mgmt = m_spinMgmt->value();
     double total = laborTotal + mat + oth + mgmt;
 
-    // 格式化数字
-    auto Y = [](double v) { return QString("¥%1").arg(v, 0, 'f', 2); };
     QString sMileage = QString::number(m_spinMileage->value());
     QString sNow = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm");
 
     // 格式化空值
     auto F = [](const QString &s) { return s.isEmpty() ? "-" : s; };
+    auto esc = [](const QString &s) { return s.toHtmlEscaped(); };
 
     // ============ 3. 取车辆完整信息（补充一次查询以获取所有字段） ============
     QString sBrand, sColor, sFuel, sTrans, sPurchase, sAddress, sOwner2, sPhone2;
     if (m_lockedVid > 0) {
         RemoteQuery q;
-        q.prepare("SELECT v.plate_number, v.vin, v.engine_number, v.model, "
+        q.prepare("SELECT v.plate_number, v.vin, v.engine_number, v.model, v.brand, "
                   "v.color, v.fuel_type, v.transmission, v.purchase_date, "
                   "v.owner_name, v.owner_phone, v.owner_address "
                   "FROM t_vehicle v "
@@ -2306,170 +2417,165 @@ QString FrontDeskPage::buildQuoteHtml()
         q.bindValue(":id", m_lockedVid);
         q.exec();
         if (q.next()) {
-            sBrand    = q.value(3).toString();
-            sColor    = q.value(4).toString();
-            sFuel     = q.value(5).toString();
-            sTrans    = q.value(6).toString();
-            sPurchase = q.value(7).toDate().toString("yyyy-MM-dd");
-            sOwner2   = q.value(8).toString();
-            sPhone2   = q.value(9).toString();
-            sAddress  = q.value(10).toString();
+            sBrand    = q.value(4).toString();   // 公司/厂家（真实 brand 列）
+            sColor    = q.value(5).toString();
+            sFuel     = q.value(6).toString();
+            sTrans    = q.value(7).toString();
+            sPurchase = q.value(8).toDate().toString("yyyy-MM-dd");
+            sOwner2   = q.value(9).toString();
+            sPhone2   = q.value(10).toString();
+            sAddress  = q.value(11).toString();
         }
     }
 
-    // ============ 4. 构建HTML ============
-    return QString(
-        "<html><head><meta charset='utf-8'><style>"
-        "body{font-family:'Microsoft YaHei','SimHei',sans-serif;font-size:11pt;margin:0;padding:0;color:#222;}"
-        "h2{font-size:18pt;margin:6pt 0;text-align:center;color:#1a1a1a;}"
-        ".subtitle{text-align:center;font-size:9pt;color:#666;margin-bottom:8pt;}"
-        ".sect-title{font-size:12pt;font-weight:bold;color:#2c3e50;background:#ecf0f1;"
-        " padding:4pt 8pt;margin:10pt 0 4pt 0;border-left:4pt solid #2980b9;}"
-        "table.info{width:100%;border-collapse:collapse;margin:3pt 0;}"
-        "table.info td{padding:3pt 6pt;border:0.5pt solid #ddd;font-size:10pt;}"
-        "table.info td.label{background:#f8f9fa;font-weight:bold;width:13%;white-space:nowrap;}"
-        "table.info td.value{width:20%;}"
-        "table.repair{width:100%;border-collapse:collapse;margin:3pt 0;}"
-        "table.repair th{background:#34495e;color:#fff;font-size:10pt;padding:4pt 6pt;text-align:center;}"
-        "table.repair td{font-size:10pt;padding:3pt 6pt;border:0.5pt solid #ddd;}"
-        "table.repair tr:nth-child(even){background:#f9f9f9;}"
-        "table.summary{width:55%;border-collapse:collapse;margin:6pt 0 6pt auto;}"
-        "table.summary td{padding:3pt 8pt;font-size:10pt;}"
-        "table.summary td.sum-label{text-align:right;font-weight:bold;white-space:nowrap;}"
-        "table.summary td.sum-value{text-align:right;white-space:nowrap;width:100pt;}"
-        "table.summary tr.total td{font-size:13pt;font-weight:bold;color:#c0392b;border-top:double 2pt #c0392b;}"
-        ".footer{font-size:8pt;color:#888;text-align:center;margin-top:10pt;}"
-        "hr{ border:none;border-top:1pt solid #bdc3c7;margin:6pt 0;}"
-        "</style></head><body>"
+    const QString orderNo     = m_editOrderNo->text();
+    const QString model       = sBrand.isEmpty() ? m_dispModel->text() : sBrand + " " + m_dispModel->text();
+    const QString purchase    = sPurchase.isEmpty() ? m_dispPurchase->date().toString("yyyy-MM-dd") : sPurchase;
+    const QString ownerName   = sOwner2.isEmpty() ? m_dispOwner->text() : sOwner2;
+    const QString ownerPhone  = sPhone2.isEmpty() ? m_dispPhone->text() : sPhone2;
+    const QString ownerAddr   = sAddress.isEmpty() ? m_dispAddress->text() : sAddress;
+    const QString techs       = QString("机电:%1 钣金:%2 喷漆:%3")
+                                    .arg(F(m_mechTech->currentText()),
+                                         F(m_bodyTech->currentText()),
+                                         F(m_paintTech->currentText()));
+    const QString content     = m_textContent->toPlainText().trimmed();
 
-        // ---- 标题 ----
-        "<h2>维修报价单</h2>"
-        "<p class='subtitle'>工单号：%1 &nbsp;|&nbsp; 制单时间：%18</p>"
-        "<hr>"
+    // ============ 4. 分区块组装（与结算单同款 CSS） ============
 
-        // ---- 第一部分：车辆基本信息 ----
-        "<div class='sect-title'>一、车辆基本信息</div>"
-        "<table class='info'>"
-        "<tr>"
-        "<td class='label'>车牌号</td><td class='value'>%2</td>"
-        "<td class='label'>品牌 / 车型</td><td class='value'>%3</td>"
-        "<td class='label'>颜  色</td><td class='value'>%15</td>"
-        "</tr><tr>"
-        "<td class='label'>车架号(VIN)</td><td class='value' colspan='3'>%4</td>"
-        "<td class='label'>燃油类型</td><td class='value'>%16</td>"
-        "</tr><tr>"
-        "<td class='label'>发动机号</td><td class='value' colspan='3'>%5</td>"
-        "<td class='label'>变速箱</td><td class='value'>%17</td>"
-        "</tr><tr>"
-        "<td class='label'>当前里程</td><td class='value'>%6 km</td>"
-        "<td class='label'>购车日期</td><td class='value'>%7</td>"
-        "<td class='label'></td><td class='value'></td>"
+    // 头部：标题
+    QString headHtml =
+        "<div class='title'>成都科盟汽车服务有限责任公司维修报价单</div>";
+
+    // 车辆信息（有框）
+    QString vehicleHtml =
+        "<div class='area-title'>车辆信息</div>"
+        "<table class='form' width='100%'>"
+        "<tr><td>车牌号：%PLATE%</td><td>品牌/车型：%MODEL%</td><td>颜 色：%COLOR%</td></tr>"
+        "<tr><td>车架号(VIN)：%VIN%</td><td>发动机号：%ENGINE%</td><td>燃油类型：%FUEL%</td></tr>"
+        "<tr><td>当前里程：%MILEAGE% km</td><td>购车日期：%PURCHASE%</td><td>变速箱：%TRANS%</td></tr>"
+        "</table>";
+
+    // 车主信息（有框）
+    QString ownerHtml =
+        "<div class='area-title'>车主信息</div>"
+        "<table class='form' width='100%'>"
+        "<tr><td>姓 名：%OWNER%</td><td>联系电话：%OWNERPHONE%</td><td></td></tr>"
+        "<tr><td colspan='3'>地 址：%OWNERADDR%</td></tr>"
+        "</table>";
+
+    // 工单信息（有框）
+    QString orderHtml =
+        "<div class='area-title'>工单信息</div>"
+        "<table class='form' width='100%'>"
+        "<tr><td>服务顾问：%ADVISOR%</td><td>主修人：%TECHS%</td><td>班 别：%SHIFT%</td></tr>"
+        "<tr><td>报修日期：%REPDATE%</td><td>预估完工：%ESTDATE%</td><td>制单时间：%NOW%</td></tr>"
+        "</table>";
+
+    // 报修描述（如有）
+    QString contentBlock =
+        "<div class='area-title'>报修描述</div>"
+        "<table class='plain' width='100%'><tr><td>%CONTENT%</td></tr></table>";
+
+    // 维修项目（grow）：大标题 + plain 表（表头下横线）
+    QString laborHtml =
+        "<div class='area-title'>维修项目</div>"
+        "<table class='plain' width='100%'>"
+        "<tr class='hd'>"
+        "<td width='14%'>类别</td>"
+        "<td width='16%'>维修人</td>"
+        "<td width='48%'>维修内容</td>"
+        "<td width='22%'>费用</td>"
         "</tr>"
-        "</table>"
+        "%REPAIRROWS%"
+        "<tr class='sub'><td colspan='3' class='r'>工时费小计</td><td class='amt'>%LABORTOTAL%</td></tr>"
+        "</table>";
+    const QString repairRowsHtml = hasItems ? repairRows
+        : QString("<tr><td class='c'>-</td><td class='c'>-</td>"
+                  "<td>暂无维修项目</td><td class='amt'>-</td></tr>");
+    laborHtml.replace("%REPAIRROWS%", repairRowsHtml).replace("%LABORTOTAL%", PrintUtil::money(laborTotal));
 
-        // ---- 第二部分：车主信息 ----
-        "<div class='sect-title'>二、车主信息</div>"
-        "<table class='info'>"
-        "<tr>"
-        "<td class='label'>姓  名</td><td class='value'>%8</td>"
-        "<td class='label'>联系电话</td><td class='value'>%9</td>"
-        "<td class='label'></td><td class='value'></td>"
-        "</tr><tr>"
-        "<td class='label'>地  址</td><td class='value' colspan='5'>%19</td>"
+    // 预计部件（grow）
+    QString partsRows;
+    double  partsTotal = 0;
+    for (auto &sp : m_selectedParts) {
+        partsTotal += sp.price;
+        partsRows += QString("<tr><td>%1</td><td>%2</td><td class='amt'>%3</td></tr>")
+            .arg(esc(sp.name)).arg(esc(sp.spec.isEmpty() ? "-" : sp.spec))
+            .arg(PrintUtil::money(sp.price));
+    }
+    QString partsHtml =
+        "<div class='area-title'>预计部件</div>"
+        "<table class='plain' width='100%'>"
+        "<tr class='hd'>"
+        "<td width='40%'>部件名称</td>"
+        "<td width='30%'>型号</td>"
+        "<td width='30%'>单价</td>"
         "</tr>"
-        "</table>"
+        "%PARTSROWS%"
+        "<tr class='sub'><td colspan='2' class='r'>部件费小计</td><td class='amt'>%PARTSTOTAL%</td></tr>"
+        "</table>";
+    const QString partsRowsHtml = partsRows.isEmpty()
+        ? QString("<tr><td>-</td><td>暂无预计部件</td><td class='amt'>-</td></tr>")
+        : partsRows;
+    partsHtml.replace("%PARTSROWS%", partsRowsHtml).replace("%PARTSTOTAL%", PrintUtil::money(partsTotal));
 
-        // ---- 第三部分：工单信息 ----
-        "<div class='sect-title'>三、工单信息</div>"
-        "<table class='info'>"
+    // 费用汇总（有框，12列 4列/项）：工时费/材料费/其它费 | 管理费/合计/空
+    QString summaryHtml =
+        "<table class='form' width='100%'>"
         "<tr>"
-        "<td class='label'>服务顾问</td><td class='value'>%10</td>"
-        "<td class='label'>主 修 人</td><td class='value'>%11</td>"
-        "<td class='label'>班  别</td><td class='value'>%12</td>"
-        "</tr><tr>"
-        "<td class='label'>报修日期</td><td class='value'>%13</td>"
-        "<td class='label'>预估完工</td><td class='value'>%14</td>"
-        "<td class='label'>公里数</td><td class='value'>%6 km</td>"
+        "<td colspan='4' class='lbl' width='33.3%'>工时费 %LFEE%</td>"
+        "<td colspan='4' class='lbl' width='33.3%'>材料费 %MFEE%</td>"
+        "<td colspan='4' class='lbl' width='33.4%'>其它费 %OTH%</td>"
         "</tr>"
+        "<tr>"
+        "<td colspan='4' class='lbl' width='33.3%'>管理费 %MGM%</td>"
+        "<td colspan='4' class='recv' width='33.3%'>合 计 %TOTAL%</td>"
+        "<td colspan='4' class='lbl' width='33.4%'></td>"
+        "</tr>"
+        "</table>";
+    summaryHtml.replace("%LFEE%", PrintUtil::money(laborTotal))
+        .replace("%MFEE%", PrintUtil::money(mat))
+        .replace("%OTH%", PrintUtil::money(oth))
+        .replace("%MGM%", PrintUtil::money(mgmt))
+        .replace("%TOTAL%", PrintUtil::money(total));
+
+    // 底部（固定）：工号 + 地址/服务电话同行 + 结算人/结算日期/收款人签字（无框，仅对齐）
+    QString officeAddr = AppSettings::officeAddress();
+    QString servicePhone = AppSettings::servicePhone();
+    if (servicePhone.isEmpty()) servicePhone = "028-________";
+    const QString settlementPerson = Session::instance().userName();
+    const QString settlementDate   = QDate::currentDate().toString("yyyy-MM-dd");
+    QString footerHtml =
+        "<div class='order-no'>工号：%ORDER%</div>"
+        "<table class='main' width='100%'>"
+        "<tr><td width='66.7%'>地址：%ADDRESS%</td><td width='33.3%'>服务电话：%PHONE%</td></tr>"
         "</table>"
+        "<table class='main' width='100%'>"
+        "<tr>"
+        "<td width='33.3%'>结算人：%SETTLER%</td>"
+        "<td width='33.3%'>结算日期：%SETTLEDATE%</td>"
+        "<td width='33.4%'>收款人签字：%SIGN%</td>"
+        "</tr>"
+        "</table>";
+    footerHtml.replace("%ORDER%", esc(orderNo))
+        .replace("%ADDRESS%", esc(officeAddr))
+        .replace("%PHONE%", esc(servicePhone))
+        .replace("%SETTLER%", esc(settlementPerson))
+        .replace("%SETTLEDATE%", settlementDate)
+        .replace("%SIGN%", QString("________________"));
 
-        // 报修内容（如有）
-        "%20"
-
-        // ---- 第四部分：维修项目明细 ----
-        "<div class='sect-title'>四、维修项目明细</div>"
-        "<table class='repair'>"
-        "<tr><th style='width:12%;'>类别</th><th style='width:18%;'>维修人</th>"
-        "<th style='width:48%;'>维修内容</th><th style='width:22%;'>费用</th></tr>"
-        "%21"
-        "</table>"
-
-        // ---- 第4.5部分：预计部件明细 ----
-        "%27"
-
-        // ---- 第五部分：费用汇总 ----
-        "<div class='sect-title'>五、费用汇总</div>"
-        "<table class='summary'>"
-        "<tr><td class='sum-label'>工时费合计：</td><td class='sum-value'>%22</td></tr>"
-        "<tr><td class='sum-label'>材料费：</td><td class='sum-value'>%23</td></tr>"
-        "<tr><td class='sum-label'>其它费：</td><td class='sum-value'>%24</td></tr>"
-        "<tr><td class='sum-label'>管理费：</td><td class='sum-value'>%25</td></tr>"
-        "<tr class='total'><td class='sum-label'>合  计：</td><td class='sum-value'>%26</td></tr>"
-        "</table>"
-
-        // ---- 页脚 ----
-        "<hr><p class='footer'>本报价单有效期3天，最终价格以实际结算为准。"
-        "如有疑问请与本公司服务顾问联系。</p>"
-        "</body></html>"
-    )
-    // 参数列表 %1~%27
-    .arg(m_editOrderNo->text())                        // %1  工单号
-    .arg(F(m_dispPlate->text()))                       // %2  车牌号
-    .arg(F(sBrand.isEmpty() ? m_dispModel->text() : sBrand + " " + m_dispModel->text())) // %3  品牌车型
-    .arg(F(m_dispVin->text()))                         // %4  VIN
-    .arg(F(m_dispEngine->text()))                      // %5  发动机号
-    .arg(sMileage)                                     // %6  公里数
-    .arg(F(sPurchase.isEmpty() ? m_dispPurchase->date().toString("yyyy-MM-dd") : sPurchase)) // %7  购车日期
-    .arg(F(sOwner2.isEmpty() ? m_dispOwner->text() : sOwner2))       // %8  车主
-    .arg(F(sPhone2.isEmpty() ? m_dispPhone->text() : sPhone2))       // %9  电话
-    .arg(F(m_cmbAdvisor->currentText()))               // %10 顾问
-    .arg(QString("机电:%1 钣金:%2 喷漆:%3")
-         .arg(F(m_mechTech->currentText()),
-              F(m_bodyTech->currentText()),
-              F(m_paintTech->currentText())))          // %11 主修人
-    .arg(F(m_cmbShift->currentText()))                 // %12 班别
-    .arg(m_dateRepair->date().toString("yyyy-MM-dd"))  // %13 报修日期
-    .arg(m_dateEstimated->date().toString("yyyy-MM-dd")) // %14 预估完工
-    .arg(F(sColor))                                    // %15 颜色
-    .arg(F(sFuel))                                     // %16 燃油
-    .arg(F(sTrans))                                    // %17 变速箱
-    .arg(sNow)                                         // %18 制单时间
-    .arg(F(sAddress.isEmpty() ? m_dispAddress->text() : sAddress))   // %19 地址
-    // 报修内容（如有）
-    .arg(m_textContent->toPlainText().trimmed().isEmpty() ? QString() :
-         QString("<div class='sect-title' style='margin-top:4pt;'>报修描述</div>"
-                 "<p style='margin:3pt 8pt;font-size:10pt;'>%1</p>")
-         .arg(m_textContent->toPlainText().trimmed())) // %20
-    .arg(hasItems ? repairRows : "<tr><td colspan='4' style='text-align:center;color:#999;padding:8pt;'>暂无维修项目</td></tr>") // %21
-    .arg(Y(laborTotal))                                // %22 工时费
-    .arg(Y(mat))                                       // %23 材料费
-    .arg(Y(oth))                                       // %24 其它费
-    .arg(Y(mgmt))                                      // %25 管理费
-    .arg(Y(total))                                     // %26 合计
-    .arg([&]() {                                       // %27 预计部件明细
-        if (m_selectedParts.isEmpty()) return QString();
-        QString partsHtml = "<div class='sect-title'>四-B、预计部件明细</div>"
-                            "<table class='repair'>"
-                            "<tr><th style='width:40%;'>部件名称</th><th style='width:30%;'>型号</th>"
-                            "<th style='width:30%;'>单价</th></tr>";
-        for (auto &sp : m_selectedParts) {
-            partsHtml += QString("<tr><td>%1</td><td>%2</td><td align='right'>¥%3</td></tr>")
-                .arg(sp.name, sp.spec.isEmpty() ? "-" : sp.spec)
-                .arg(sp.price, 0, 'f', 2);
-        }
-        partsHtml += "</table>";
-        return partsHtml;
-    }());
+    // ============ 5. 区块列表 ============
+    out << SettlementSection{PrintUtil::settlementWrap(headHtml),    false}
+        << SettlementSection{PrintUtil::settlementWrap(vehicleHtml), false}
+        << SettlementSection{PrintUtil::settlementWrap(ownerHtml),   false}
+        << SettlementSection{PrintUtil::settlementWrap(orderHtml),   false};
+    if (!content.isEmpty())
+        out << SettlementSection{PrintUtil::settlementWrap(contentBlock), false};
+    out << SettlementSection{PrintUtil::settlementWrap(laborHtml),   true}
+        << SettlementSection{PrintUtil::settlementWrap(partsHtml),   true}
+        << SettlementSection{PrintUtil::settlementWrap(summaryHtml), false}
+        << SettlementSection{PrintUtil::settlementWrap(footerHtml),  false};
+    return out;
 }
 
 // ============================================================
@@ -2481,12 +2587,8 @@ void FrontDeskPage::onPrintQuote()
         QMessageBox::warning(this,"提示","请先锁定车辆并创建工单");
         return;
     }
-    QPrinter printer; QPrintPreviewDialog pp(&printer, this);
-    connect(&pp, &QPrintPreviewDialog::paintRequested, [&](QPrinter *p) {
-        QTextDocument doc;
-        doc.setHtml(buildQuoteHtml()); doc.print(p);
-    });
-    pp.exec();
+    // 新版式：分区块拼版（与结算单同款：A4 纵向铺满）
+    PrintUtil::printSectionsPreview(buildQuoteSections(), this, "打印报价单");
 }
 
 // ============================================================
@@ -2506,23 +2608,10 @@ void FrontDeskPage::onExportQuotePdf()
         this, "导出报价单PDF", defaultName, "PDF文件 (*.pdf)");
     if (filePath.isEmpty()) return;
 
-    QPrinter printer(QPrinter::HighResolution);
-    printer.setOutputFormat(QPrinter::PdfFormat);
-    printer.setOutputFileName(filePath);
-    printer.setPageSize(QPageSize(QPageSize::A4));
-    printer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout::Millimeter);
-
-    QTextDocument doc;
-    doc.setHtml(buildQuoteHtml());
-    // 使用 Point 单位计算页面尺寸，与 HTML/CSS 的渲染分辨率匹配
-    QSizeF pageSize = printer.pageRect(QPrinter::Point).size();
-    doc.setPageSize(pageSize);
-    // 让内容填满整页宽度
-    doc.setTextWidth(pageSize.width());
-    doc.print(&printer);
-
-    QMessageBox::information(this, "导出成功",
-        QString("报价单已保存到:\n%1").arg(filePath));
+    if (PrintUtil::renderSectionsToPdf(buildQuoteSections(), filePath, this)) {
+        QMessageBox::information(this, "导出成功",
+            QString("报价单已保存到:\n%1").arg(filePath));
+    }
 }
 
 // ============================================================

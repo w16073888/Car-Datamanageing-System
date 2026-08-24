@@ -16,6 +16,7 @@
 #include <QScrollArea>
 #include <QList>
 #include <QVBoxLayout>
+#include "utils/PrintUtil.h"
 #include <QKeyEvent>
 #include <QFileDialog>
 #include <QPageSize>
@@ -56,6 +57,8 @@ private slots:
     void onCancelNewCar();        // 新车录入 → 返回查找
     void onCancelDispatch();      // 派工 → 返回查找
     void onSaveVehicleInfo();     // 保存车辆信息修改
+    void onBrandLiveSearch();     // 新车录入「公司」逐键模糊搜索下拉
+    void onModelLiveSearch();     // 新车录入「车型」逐键模糊搜索下拉
     void onPartSearchTextChanged(const QString &text); // 备件搜索输入变化
     void onAddPart();             // 添加部件到列表
     void onDeleteWorkOrder();     // 编辑态删除当前工单（无备件绑定时可删）
@@ -72,7 +75,8 @@ private:
     void clearGhost();
     double calcTotalFee();
     double calcRepairFee();
-    QString buildQuoteHtml();
+    // 报价单新版式分区块（与结算单同款：分区块+QPainter拼版，纵向铺满）
+    QList<SettlementSection> buildQuoteSections();
     void setState(FrontDeskState s);
     void refreshCarModelList();   // 刷新新车录入的车型下拉列表
     void resetNewCarForm();       // 重置新车录入表单（每次打开时调用，保证清空）
@@ -114,6 +118,7 @@ private:
     // ==================== 车辆信息展示（锁定后可编辑） ====================
     QLineEdit *m_dispPlate, *m_dispVin, *m_dispEngine;
     QLineEdit *m_dispModel, *m_dispOwner, *m_dispPhone;
+    QLineEdit *m_dispBrand;   // 公司（厂家/品牌）
     QLineEdit *m_dispAddress;
     QComboBox *m_dispColor, *m_dispFuel, *m_dispTrans;
     QDateEdit *m_dispPurchase;
@@ -122,11 +127,16 @@ private:
     // ==================== 新车录入 ====================
     QLineEdit   *m_nPlate, *m_nVin, *m_nEngine;
     QLineEdit   *m_nOwner, *m_nPhone, *m_nAddress;
-    QComboBox   *m_nModel;   // 车型：可手动输入的下拉列表（历史车型可选）
+    QLineEdit   *m_nBrand;   // 公司（厂家/品牌）：模糊搜索下拉
+    QLineEdit   *m_nModel;   // 车型：模糊搜索下拉（可手动输入未收录车型）
     QComboBox   *m_nColor, *m_nFuel, *m_nTrans;
     QDateEdit   *m_nPurchase;
     QPushButton *m_btnSaveNewCar;
     QPushButton *m_btnCancelNewCar;
+    SearchCompleter *m_brandCompleter;   // 公司多结果下拉
+    SearchCompleter *m_modelCompleter;   // 车型多结果下拉
+    QList<QStringList> m_brandRows;      // 公司搜索结果（单列）
+    QList<QStringList> m_modelRows;      // 车型搜索结果（单列）
 
     // ==================== 派工 ====================
     QLineEdit   *m_editOrderNo;

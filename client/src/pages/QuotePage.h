@@ -8,8 +8,10 @@
 #include <QLabel>
 #include <QTableWidget>
 #include <QDoubleSpinBox>
+#include <QList>
 
 #include "widgets/SearchCompleter.h"
+#include "utils/PrintUtil.h"
 
 class QuotePage : public QWidget
 {
@@ -38,7 +40,8 @@ private:
     void setupUI();
     void loadOrderInfo(const QString &orderNo);
     void updateActionButtons(const QString &status);
-    QString buildSettlementHtml() const;
+    // 新版式结算单分区块（方案B：分区块+QPainter拼版，纵向铺满）
+    QList<SettlementSection> buildSettlementSections() const;
     void savePartPriceEdits();  // 保存材料单价编辑并重算/写回 material_fee
 
     // ---- 查询工单 ----

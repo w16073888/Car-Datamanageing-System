@@ -8,8 +8,10 @@
 #include <QLabel>
 #include <QDoubleSpinBox>
 #include <QStyledItemDelegate>
+#include <QList>
 
 #include "widgets/SearchCompleter.h"
+#include "utils/PrintUtil.h"
 
 class QComboBox;
 class QButtonGroup;
@@ -72,7 +74,8 @@ private:
                      const QString &content, double fee);
     void setPartRow(int row, int partId, const QString &name, double qty, double price);
     void updateSummary();
-    QString buildEditSettlementHtml() const;
+    // 新版式结算单分区块（方案B：分区块+QPainter拼版，纵向铺满）
+    QList<SettlementSection> buildEditSettlementSections() const;
 
     // ---- 查询工单 ----
     QLineEdit *m_searchOrder;

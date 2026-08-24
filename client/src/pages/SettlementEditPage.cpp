@@ -1,8 +1,10 @@
 #include "SettlementEditPage.h"
 #include "database/Session.h"
+#include "core/AppSettings.h"
 #include "remote/RemoteQuery.h"
 #include "remote/RemoteDb.h"
 #include "remote/SqlUtil.h"
+#include "utils/PrintUtil.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -24,63 +26,8 @@
 #include <QDebug>
 
 // ============================================================
-// 人民币大写转换（与工单查询页保持一致）
+// 人民币大写转换 / 文本金额格式化 / 打印PDF管线统一走 utils/PrintUtil.h
 // ============================================================
-namespace {
-
-QString chineseUpper(double amount)
-{
-    if (amount < 0.005) return QString();
-    const QStringList digits  = {"零","壹","贰","叁","肆","伍","陆","柒","捌","玖"};
-    const QStringList radices = {"","拾","佰","仟"};
-    const int divs[] = {1000, 100, 10, 1};
-
-    qint64 yuan = static_cast<qint64>(amount);
-    int jiao = static_cast<int>((amount - yuan) * 100 + 0.5) / 10;
-    int fen  = static_cast<int>((amount - yuan) * 100 + 0.5) % 10;
-
-    if (yuan == 0 && jiao == 0 && fen == 0) return "零元整";
-
-    QString result;
-    if (yuan > 0) {
-        QList<int> segs;
-        qint64 t = yuan;
-        while (t > 0) { segs.prepend(static_cast<int>(t % 10000)); t /= 10000; }
-        for (int s = 0; s < segs.size(); s++) {
-            int seg = segs[s];
-            if (seg == 0) continue;
-            QString part;
-            bool needZero = false;
-            for (int i = 0; i < 4; i++) {
-                int d = (seg / divs[i]) % 10;
-                if (d != 0) {
-                    if (needZero) { part += "零"; needZero = false; }
-                    part += digits[d] + radices[i];
-                } else {
-                    if (!part.isEmpty()) needZero = true;
-                }
-            }
-            if (part.endsWith("零")) part.chop(1);
-            int bigIdx = segs.size() - 1 - s;
-            if (bigIdx == 1) part += "万";
-            else if (bigIdx == 2) part += "亿";
-            result += part;
-        }
-        result += "元";
-    }
-    if (jiao > 0) result += digits[jiao] + "角";
-    else if (yuan > 0 && fen > 0) result += "零";
-    if (fen > 0) result += digits[fen] + "分";
-    else if (jiao == 0 && fen == 0) result += "整";
-
-    return result;
-}
-
-QString esc(const QString &s) { return s.toHtmlEscaped(); }
-QString fmt(double v) { return QString("¥%1").arg(v, 0, 'f', 2); }
-QString mi(int v) { return v > 0 ? QString::number(v) : QString(); }
-
-} // namespace
 
 // ============================================================
 // LaborTypeDelegate：类别下拉（机电/钣金/喷漆）
@@ -905,11 +852,12 @@ void SettlementEditPage::onSaveEdit()
 }
 
 // ============================================================
-// 构建「修改后结算单」HTML（读取页面当前实况，不读原表）
+// 构建「修改后结算单」分区块（读取页面当前实况，不读原表）
+// 方案B：分区块 + QPainter 拼版，纵向铺满一页
 // ============================================================
-QString SettlementEditPage::buildEditSettlementHtml() const
+QList<SettlementSection> SettlementEditPage::buildEditSettlementSections() const
 {
-    if (m_currentOrderId == 0) return QString();
+    if (m_currentOrderId == 0) return QList<SettlementSection>();
 
     // ---- 工时行 ----
     QString laborRows;
@@ -931,14 +879,14 @@ QString SettlementEditPage::buildEditSettlementHtml() const
         QString serviceItem = typ;
         if (!content.isEmpty()) serviceItem += ": " + content;
         laborRows += QString(
-            "<tr><td class='dr c'>%1</td>"
-            "<td colspan='3' class='dr'>%2</td>"
-            "<td class='dr c'>%3</td>"
-            "<td colspan='2' class='dr r amt'>%4</td></tr>")
+            "<tr><td class='c'>%1</td>"
+            "<td>%2</td>"
+            "<td class='c'>%3</td>"
+            "<td class='amt'>%4</td></tr>")
             .arg(laborSeq)
-            .arg(esc(serviceItem))
-            .arg(person.isEmpty() ? "" : esc(person))
-            .arg(QString("¥%1").arg(fee, 0, 'f', 2));
+            .arg(PrintUtil::esc(serviceItem))
+            .arg(person.isEmpty() ? "" : PrintUtil::esc(person))
+            .arg(PrintUtil::money(fee));
     }
 
     // ---- 材料行 ----
@@ -958,158 +906,147 @@ QString SettlementEditPage::buildEditSettlementHtml() const
         partsSeq++;
         partsTotal += sub;
         partsRows += QString(
-            "<tr><td class='dr c'>%1</td>"
-            "<td class='dr'>-</td><td class='dr'>%2</td>"
-            "<td class='dr c'>个</td>"
-            "<td class='dr c'>%3</td>"
-            "<td class='dr r amt'>%4</td>"
-            "<td class='dr r amt'>%5</td></tr>")
+            "<tr><td class='c'>%1</td>"
+            "<td>-</td><td>%2</td>"
+            "<td class='c'>个</td>"
+            "<td class='c'>%3</td>"
+            "<td class='amt'>%4</td>"
+            "<td class='amt'>%5</td></tr>")
             .arg(partsSeq)
-            .arg(esc(name))
+            .arg(PrintUtil::esc(name))
             .arg(QString::number(qty))
-            .arg(QString("¥%1").arg(price, 0, 'f', 2))
-            .arg(QString("¥%1").arg(sub, 0, 'f', 2));
+            .arg(PrintUtil::money(price))
+            .arg(PrintUtil::money(sub));
     }
 
     double otherFee = m_editOtherFee->value();
     double mgmtFee  = m_editMgmtFee->value();
     double discount = m_editDiscount->value();
     double grandTotal = laborTotal + partsTotal + otherFee + mgmtFee - discount;
-    QString amountInWords = chineseUpper(grandTotal);
+    QString amountInWords = PrintUtil::chineseUpper(grandTotal);
 
     const QString settlementPerson = Session::instance().userName();
     const QString settlementDate   = QDate::currentDate().toString("yyyy-MM-dd");
 
-    QString newStyle = QString(
-        "@page{margin:8mm;size:A4;}"
-        "body{font-family:DengXian,SimSun,sans-serif;font-size:14px;margin:0;padding:0;color:#000;}"
-        "table.main{border-collapse:collapse;width:100%;}"
-        "table.main td,table.main th{border:1px solid #000;padding:20px 16px;vertical-align:middle;}"
-        "table.main td.dr{padding:14px 16px;}"
-        "table.inner{border-collapse:collapse;width:100%;}"
-        "table.inner td{border:0;padding:8px 10px;}"
-        ".t-order{font-size:11px;text-align:right;padding:5px 12px 0 12px;}"
-        ".t-title{font-family:SimHei,DengXian,sans-serif;font-size:26px;font-weight:bold;text-align:center;padding:8px 12px 18px 12px;}"
-        ".subtitle{font-family:SimHei,DengXian,sans-serif;font-weight:bold;font-size:16px;background:#efefef;text-align:left;}"
-        ".subhead{background:#e2e2e2;font-weight:bold;text-align:center;font-size:14px;}"
-        ".subtotal{background:#efefef;font-weight:bold;}"
-        ".big{background:#dcdcdc;}"
-        ".big td{font-weight:bold;font-size:17px;}"
-        ".recv{font-size:22px;font-weight:bold;}"
-        ".amt{font-family:Consolas,Courier New,monospace;}"
-        ".words{font-family:Consolas,Courier New,monospace;}"
-        ".r{text-align:right;}"
-        ".c{text-align:center;}"
-        "p.ft{font-size:10px;margin:4px 0 0 0;text-align:center;color:#555;}");
+    const QString address = AppSettings::officeAddress();
 
-    QString tmpl = QString(
-        "<!DOCTYPE html><html><head><meta charset='utf-8'><style>%STYLE%</style></head><body>"
-        "<table class='main' width='100%'>"
-        "<tr><td colspan='7' class='t-order'>工号: %ORDER%</td></tr>"
-        "<tr><td colspan='7' class='t-title'>成都科盟汽车服务有限责任公司维修结算单</td></tr>"
-        "<tr><td colspan='7' style='padding:10px 14px;'>"
-        "<table class='inner' width='100%'>"
-        "<tr>"
-        "<td class='nb'>送修单位: %OWNER%</td>"
-        "<td class='nb'>联系人: %CONTACT%</td>"
-        "<td class='nb'>联系电话: %PHONE%</td>"
-        "<td class='nb'>车牌: %PLATE%</td>"
-        "<td class='nb'>车型: %MODEL%</td>"
-        "</tr>"
-        "<tr>"
-        "<td class='nb'>发动机号: %ENGINE%</td>"
-        "<td class='nb'>VIN: %VIN%</td>"
-        "<td class='nb'>里程: %MILEAGE% km</td>"
-        "<td class='nb'>维修日期: %ENTRYDATE%</td>"
-        "<td class='nb'></td>"
-        "</tr>"
-        "</table>"
-        "</td></tr>"
-        "<tr><td colspan='7' class='subtitle'>工时费明细</td></tr>"
-        "<tr>"
-        "<th class='subhead' style='width:6%;'>序号</th>"
-        "<th class='subhead' colspan='3'>维修项目</th>"
-        "<th class='subhead' style='width:12%;'>主修人</th>"
-        "<th class='subhead' colspan='2' style='width:16%;'>工时费</th>"
+    auto esc = [](const QString &s) { return s.toHtmlEscaped(); };
+
+    // 头部：标题（工号已移至底部区块）
+    QString headHtml =
+        "<div class='title'>成都科盟汽车服务有限责任公司维修结算单</div>";
+
+    // 送修信息 3×3（有框）
+    QString infoHtml =
+        "<table class='form' width='100%'>"
+        "<tr><td>送修单位：%OWNER%</td><td>联系人：%CONTACT%</td><td>联系电话：%PHONE%</td></tr>"
+        "<tr><td>车牌号：%PLATE%</td><td>车型：%MODEL%</td><td>发动机号：%ENGINE%</td></tr>"
+        "<tr><td>车身号：%VIN%</td><td>送修日期：%ENTRYDATE%</td><td>里程数：%MILEAGE% km</td></tr>"
+        "</table>";
+    infoHtml.replace("%OWNER%", esc(m_ownerName)).replace("%CONTACT%", esc(m_ownerName)).replace("%PHONE%", esc(m_ownerPhone));
+    infoHtml.replace("%PLATE%", esc(m_plate)).replace("%MODEL%", esc(m_model)).replace("%ENGINE%", esc(m_engine));
+    infoHtml.replace("%VIN%", esc(m_vin)).replace("%ENTRYDATE%", m_entryDate).replace("%MILEAGE%", QString::number(m_mileage));
+
+    // 工时区（grow）：表头不画框，列宽 序号+主修人+工时费=50%，维修项目=50%
+    QString laborRowsHtml = laborRows.isEmpty()
+        ? QString("<tr><td class='c'>-</td><td>暂无工时费明细</td>"
+                  "<td class='c'>-</td><td class='amt'>-</td></tr>")
+        : laborRows;
+    QString laborHtml =
+        "<div class='area-title'>维修内容</div>"
+        "<table class='plain' width='100%'>"
+        "<tr class='hd'>"
+        "<td width='16.7%'>序号</td>"
+        "<td width='50%'>维修项目</td>"
+        "<td width='16.7%'>主修人</td>"
+        "<td width='16.6%'>工时费</td>"
         "</tr>"
         "%LABORROWS%"
-        "<tr class='subtotal'><td colspan='5' class='r'>工时费合计</td><td colspan='2' class='r amt'>%LABORTOTAL%</td></tr>"
-        "<tr><td colspan='7' class='subtitle'>材料明细</td></tr>"
-        "<tr>"
-        "<th class='subhead' style='width:6%;'>序号</th>"
-        "<th class='subhead' style='width:14%;'>配件件号</th>"
-        "<th class='subhead'>配件名称</th>"
-        "<th class='subhead' style='width:8%;'>单位</th>"
-        "<th class='subhead' style='width:8%;'>数量</th>"
-        "<th class='subhead' style='width:12%;'>单价</th>"
-        "<th class='subhead' style='width:15%;'>金额</th>"
+        "<tr class='sub'><td colspan='3' class='r'>工时费小计</td><td class='amt'>%LABORTOTAL%</td></tr>"
+        "</table>";
+    laborHtml.replace("%LABORROWS%", laborRowsHtml).replace("%LABORTOTAL%", PrintUtil::money(laborTotal));
+
+    // 材料区（grow）：无内部网格，仅顶部实线
+    QString partsRowsHtml = partsRows.isEmpty()
+        ? QString("<tr><td class='c'>-</td><td>-</td><td>暂无材料明细</td>"
+                  "<td class='c'>-</td><td class='c'>-</td>"
+                  "<td class='amt'>-</td><td class='amt'>-</td></tr>")
+        : partsRows;
+    QString partsHtml =
+        "<div class='area-title'>材料清单</div>"
+        "<table class='plain' width='100%'>"
+        "<tr class='hd'>"
+        "<td width='9%'>序号</td>"
+        "<td width='15%'>配件件号</td>"
+        "<td width='22%'>配件名称</td>"
+        "<td width='9%'>单位</td>"
+        "<td width='9%'>数量</td>"
+        "<td width='18%'>单价</td>"
+        "<td width='18%'>金额</td>"
         "</tr>"
         "%PARTSROWS%"
-        "<tr class='subtotal'><td colspan='6' class='r'>材料费合计</td><td class='r amt'>%PARTSTOTAL%</td></tr>"
-        "<tr><td colspan='7' class='subtitle'>费用总计</td></tr>"
-        "<tr><td colspan='5'>材料费</td><td colspan='2' class='r amt'>%MFEE%</td></tr>"
-        "<tr><td colspan='5'>工时费</td><td colspan='2' class='r amt'>%LFEE%</td></tr>"
-        "<tr><td colspan='5'>管理费</td><td colspan='2' class='r amt'>%MGM%</td></tr>"
-        "<tr><td colspan='5'>材料优惠</td><td colspan='2' class='r amt'>¥0.00</td></tr>"
-        "<tr><td colspan='5'>优惠工时费</td><td colspan='2' class='r amt'>¥0.00</td></tr>"
-        "<tr><td colspan='5'>各项维保优惠</td><td colspan='2' class='r amt'>¥0.00</td></tr>"
-        "<tr><td colspan='5'>总优惠</td><td colspan='2' class='r amt'>%DISCOUNT%</td></tr>"
-        "<tr class='big'>"
-        "<td colspan='3' class='r'>总费用</td><td class='r amt'>%GRAND%</td>"
-        "<td colspan='2' class='r'>应收款</td><td class='r recv amt'>%RECV%</td>"
-        "</tr>"
-        "<tr><td colspan='5' class='r'>大写金额:</td><td colspan='2' class='words'>%WORDS%</td></tr>"
-        "<tr><td colspan='7' style='padding:24px 16px;'>"
-        "<table class='inner' width='100%'>"
+        "<tr class='sub'><td colspan='6' class='r'>材料费小计</td><td class='amt'>%PARTSTOTAL%</td></tr>"
+        "</table>";
+    partsHtml.replace("%PARTSROWS%", partsRowsHtml).replace("%PARTSTOTAL%", PrintUtil::money(partsTotal));
+
+    // 汇总区（固定）：12列 3项/行各4列；应收款加大加粗；大写金额3/4 + 客户签字1/4
+    QString summaryHtml =
+        "<table class='form' width='100%'>"
         "<tr>"
-        "<td class='nb' style='width:34%;vertical-align:top;'>地址: 四川省成都市______区______路______号<br/>服务电话: 028-________</td>"
-        "<td class='nb' style='width:22%;vertical-align:top;'>结算人: %SETTLER%<br/>结算日期: %SETTLEDATE%</td>"
-        "<td class='nb' style='width:44%;vertical-align:top;'>出厂日期: <br/><br/>收款人签字:<br/><div style='border:1px solid #000;height:90px;margin-top:4px;'>&nbsp;</div></td>"
+        "<td colspan='4' class='lbl' width='33.3%'>材料费 %MFEE%</td>"
+        "<td colspan='4' class='lbl' width='33.3%'>工时费 %LFEE%</td>"
+        "<td colspan='4' class='lbl' width='33.4%'>管理费 %MGM%</td>"
         "</tr>"
-        "</table>"
-        "</td></tr>"
-        "</table>"
-        "<p class='ft'>打印时间: %PRINTTIME%</p>"
-        "</body></html>");
+        "<tr>"
+        "<td colspan='4' class='lbl' width='33.3%'>总费用 %GRAND%</td>"
+        "<td colspan='4' class='lbl' width='33.3%'>总优惠 %DISCOUNT%</td>"
+        "<td colspan='4' class='recv' width='33.4%'>应收款 %RECV%</td>"
+        "</tr>"
+        "<tr>"
+        "<td colspan='9' class='words' width='75%'>大写金额：%WORDS%</td>"
+        "<td colspan='3' class='sign' width='25%'>客户签字：</td>"
+        "</tr>"
+        "</table>";
+    summaryHtml.replace("%MFEE%", PrintUtil::money(partsTotal))
+        .replace("%LFEE%", PrintUtil::money(laborTotal))
+        .replace("%MGM%", PrintUtil::money(mgmtFee))
+        .replace("%GRAND%", PrintUtil::money(grandTotal))
+        .replace("%DISCOUNT%", PrintUtil::money(discount))
+        .replace("%RECV%", PrintUtil::money(grandTotal))
+        .replace("%WORDS%", amountInWords);
 
-    const QString laborRowsHtml = laborRows.isEmpty()
-        ? QString("<tr><td class='dr c'>-</td><td colspan='3' class='dr c'>暂无工时费明细</td>"
-                  "<td class='dr c'>-</td><td colspan='2' class='dr r'>0.00</td></tr>")
-        : laborRows;
-    const QString partsRowsHtml = partsRows.isEmpty()
-        ? QString("<tr><td class='dr c'>-</td><td class='dr'></td>"
-                  "<td class='dr c'>暂无材料明细</td>"
-                  "<td class='dr c'>-</td><td class='dr c'>-</td>"
-                  "<td class='dr r'>-</td><td class='dr r'>0.00</td></tr>")
-        : partsRows;
+    // 底部区块（固定）：工号（从右上角移至此）+ 地址/服务电话同行 +
+    // 结算人/结算日期/收款人签字 三个独立表格；原收款人签字行/出厂日期已并入。
+    QString servicePhone = AppSettings::servicePhone();
+    if (servicePhone.isEmpty()) servicePhone = "028-________";
+    // 地址+服务电话、结算人/结算日期/收款人签字 两行：无表格框线，仅对齐
+    QString footerHtml =
+        "<div class='order-no'>工号：%ORDER%</div>"
+        "<table class='main' width='100%'>"
+        "<tr><td width='66.7%'>地址：%ADDRESS%</td><td width='33.3%'>服务电话：%PHONE%</td></tr>"
+        "</table>"
+        "<table class='main' width='100%'>"
+        "<tr>"
+        "<td width='33.3%'>结算人：%SETTLER%</td>"
+        "<td width='33.3%'>结算日期：%SETTLEDATE%</td>"
+        "<td width='33.4%'>收款人签字：%SIGN%</td>"
+        "</tr>"
+        "</table>";
+    footerHtml.replace("%ORDER%", esc(m_currentOrderNo))
+        .replace("%ADDRESS%", esc(address))
+        .replace("%PHONE%", esc(servicePhone))
+        .replace("%SETTLER%", esc(settlementPerson))
+        .replace("%SETTLEDATE%", settlementDate)
+        .replace("%SIGN%", QString("________________"));
 
-    QString html = tmpl;
-    html.replace("%STYLE%",        newStyle);
-    html.replace("%ORDER%",        esc(m_currentOrderNo));
-    html.replace("%OWNER%",        esc(m_ownerName));
-    html.replace("%CONTACT%",      esc(m_ownerName));
-    html.replace("%PHONE%",        esc(m_ownerPhone));
-    html.replace("%PLATE%",        esc(m_plate));
-    html.replace("%MODEL%",        esc(m_model));
-    html.replace("%ENGINE%",       esc(m_engine));
-    html.replace("%VIN%",          esc(m_vin));
-    html.replace("%ENTRYDATE%",    m_entryDate);
-    html.replace("%MILEAGE%",      mi(m_mileage));
-    html.replace("%LABORROWS%",    laborRowsHtml);
-    html.replace("%LABORTOTAL%",   fmt(laborTotal));
-    html.replace("%PARTSROWS%",    partsRowsHtml);
-    html.replace("%PARTSTOTAL%",   fmt(partsTotal));
-    html.replace("%MFEE%",         fmt(partsTotal));
-    html.replace("%MGM%",          fmt(mgmtFee));
-    html.replace("%LFEE%",         fmt(laborTotal));
-    html.replace("%GRAND%",        fmt(grandTotal));
-    html.replace("%DISCOUNT%",     fmt(discount));
-    html.replace("%RECV%",         fmt(grandTotal));
-    html.replace("%WORDS%",        amountInWords);
-    html.replace("%SETTLER%",      esc(settlementPerson));
-    html.replace("%SETTLEDATE%",   settlementDate);
-    html.replace("%PRINTTIME%",    QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));
-    return html;
+    QList<SettlementSection> out;
+    out << SettlementSection{PrintUtil::settlementWrap(headHtml),    false}
+        << SettlementSection{PrintUtil::settlementWrap(infoHtml),    false}
+        << SettlementSection{PrintUtil::settlementWrap(laborHtml),   true}
+        << SettlementSection{PrintUtil::settlementWrap(partsHtml),   true}
+        << SettlementSection{PrintUtil::settlementWrap(summaryHtml), false}
+        << SettlementSection{PrintUtil::settlementWrap(footerHtml),  false};
+    return out;
 }
 
 // ============================================================
@@ -1126,19 +1063,10 @@ void SettlementEditPage::onSaveToPdf()
         this, "保存结算修改单PDF", defaultName, "PDF 文件 (*.pdf)");
     if (filePath.isEmpty()) return;
 
-    QPrinter printer;
-    printer.setOutputFormat(QPrinter::PdfFormat);
-    printer.setOutputFileName(filePath);
-    printer.setPageSize(QPageSize(QPageSize::A4));
-    printer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout::Millimeter);
-
-    QTextDocument doc;
-    doc.setHtml(buildEditSettlementHtml());
-    doc.setPageSize(printer.pageLayout().paintRectPixels(printer.resolution()).size());
-    doc.print(&printer);
-
-    QMessageBox::information(this, "导出成功",
-        QString("修改后结算单已保存到:\n%1").arg(filePath));
+    if (PrintUtil::renderSectionsToPdf(buildEditSettlementSections(), filePath, this)) {
+        QMessageBox::information(this, "导出成功",
+            QString("修改后结算单已保存到:\n%1").arg(filePath));
+    }
 }
 
 // ============================================================
@@ -1150,16 +1078,5 @@ void SettlementEditPage::onPrintSettlement()
         QMessageBox::warning(this, "提示", "请先搜索并选择已结算工单");
         return;
     }
-    QPrinter printer;
-    printer.setPageSize(QPageSize(QPageSize::A4));
-    printer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout::Millimeter);
-    QPrintPreviewDialog preview(&printer, this);
-    preview.setWindowTitle("打印修改后结算单");
-    connect(&preview, &QPrintPreviewDialog::paintRequested, [this](QPrinter *p) {
-        QTextDocument doc;
-        doc.setHtml(buildEditSettlementHtml());
-        doc.setPageSize(p->pageLayout().paintRectPixels(p->resolution()).size());
-        doc.print(p);
-    });
-    preview.exec();
+    PrintUtil::printSectionsPreview(buildEditSettlementSections(), this, "打印修改后结算单");
 }

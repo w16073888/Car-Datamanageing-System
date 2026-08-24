@@ -42,7 +42,7 @@ void DataManagerPage::setupUI()
     tableSelectLayout->addWidget(new QLabel("选择数据表："));
     m_tableSelector = new QComboBox;
     m_tableSelector->addItem("员工表", "t_employee");
-    m_tableSelector->addItem("车辆表", "t_vehicle");
+    m_tableSelector->addItem("客户表", "t_vehicle");
     m_tableSelector->addItem("工单表", "t_workorder");
     m_tableSelector->addItem("备件表", "t_parts");
     m_tableSelector->addItem("库存流水表", "t_inventory_log");
@@ -336,7 +336,7 @@ void DataManagerPage::loadOperationLog()
         "  CASE l.action_type WHEN 'insert' THEN '新增' WHEN 'update' THEN '修改' "
         "    WHEN 'delete' THEN '删除' ELSE l.action_type END AS '操作类型', "
         "  CASE l.table_name "
-        "    WHEN 't_employee' THEN '员工表' WHEN 't_vehicle' THEN '车辆表' "
+        "    WHEN 't_employee' THEN '员工表' WHEN 't_vehicle' THEN '客户表' "
         "    WHEN 't_workorder' THEN '工单表' WHEN 't_parts' THEN '备件表' "
         "    WHEN 't_inventory_log' THEN '库存流水表' WHEN 't_settlement' THEN '结算表' "
         "    WHEN 't_vehicle_transaction' THEN '交易历史表' WHEN 't_workorder_item' THEN '工单明细表' "
@@ -392,7 +392,7 @@ void DataManagerPage::setChineseHeaders()
         m_model->setHeaderData(4,  Qt::Horizontal, "车牌号");
         m_model->setHeaderData(5,  Qt::Horizontal, "车架号(VIN)");
         m_model->setHeaderData(6,  Qt::Horizontal, "发动机号");
-        m_model->setHeaderData(7,  Qt::Horizontal, "厂家/品牌");
+        m_model->setHeaderData(7,  Qt::Horizontal, "公司");
         m_model->setHeaderData(8,  Qt::Horizontal, "车型/型号");
         m_model->setHeaderData(9,  Qt::Horizontal, "颜色");
         m_model->setHeaderData(10, Qt::Horizontal, "燃油类型");
