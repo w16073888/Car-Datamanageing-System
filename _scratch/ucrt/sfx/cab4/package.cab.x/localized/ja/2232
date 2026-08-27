@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>ja</Language><Title>.NET Framework 1.1 バンドル Detectoid</Title><Description>この Detectoid は、.NET Framework 1.1 および言語パックのバンドルが必要であるかどうかを識別するために使用されます。この Detectoid が True の場合 (レジストリ キーが存在する場合など)、バンドルは提供されません。</Description></LocalizedProperties>

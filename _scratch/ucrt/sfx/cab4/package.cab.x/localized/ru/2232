@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>ru</Language><Title>.NET Framework 1.1 Bundle Detectoid</Title><Description>This detectoid is used to identify when the .NET Framework 1.1 / LP bundle should be offered. If this detectoid resolves to true (i.e. the regkey exists), then the bundle WILL NOT be offered.</Description></LocalizedProperties>

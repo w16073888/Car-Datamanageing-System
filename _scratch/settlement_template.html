@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>成都科盟汽车服务有限责任公司维修结算单</title>
+<!--
+  ============================================================
+  结算单打印模板（独立 HTML 版式原型）
+  - 纯表格布局，无外部资源；A4 打印；黑白宋体纸质单据风格。
+  - 动态字段全部为占位符 {{字段名}}，不要填示例数据。
+    最终由 C++ 端（QuotePage::buildSettlementHtmlFor / SettlementEditPage）
+    用数据库真实数据替换。
+
+  占位符 → 数据库字段 对照（现有查询已包含）：
+    工号        ← t_workorder.order_no
+    送修单位    ← t_vehicle.owner_name
+    联系人      ← t_vehicle.owner_name
+    联系电话    ← t_vehicle.owner_phone
+    车牌号      ← t_vehicle.plate_number
+    车型        ← t_vehicle.model
+    发动机号    ← t_vehicle.engine_number
+    车身号      ← t_vehicle.vin
+    送修日期    ← t_workorder.repair_date / created_at
+    里程数      ← t_workorder.mileage
+
+    维修内容行   ← t_workorder_repair_item (repair_content / repair_person / fee)
+    工时费小计   ← SUM(fee) 或 w.labor_fee
+    材料清单行   ← t_workorder_item JOIN t_parts (part_no / part_name / spec / qty / unit_price / subtotal)
+    材料费小计   ← SUM(subtotal) 或 w.material_fee
+
+    材料费/工时费/管理费 ← w.material_fee / w.labor_fee / w.management_fee
+    材料优惠/工时优惠/保险相关/三包/免保 ← 按业务实际（若无则填 0.00）
+    总费用      ← laborFee + partsTotal + otherFee + mgmtFee − discount
+    总优惠      ← w.discount
+    应收款      ← 总费用（一次付清）
+    大写金额    ← 应收款转中文大写
+    结算人      ← Session 当前用户名
+    结算日期    ← 当前日期
+    地址/服务电话 ← 公司信息（模板留空，部署时填）
+
+  分页：正常数据恰好 1 页；数据过多时分页，
+        明细表 thead 表头跨页重复，行不拦腰截断。
+  ============================================================
+-->
+<style>
+  /* ---------- A4 纸张 / 打印 ---------- */
+  @page { size: A4; margin: 8mm; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: SimSun, "宋体", serif;   /* 宋体贴近国内打印单据 */
+    font-size: 11px;
+    color: #000;
+    background: #fff;
+  }
+
+  /* ---------- 表格基础：全部细实线黑色 ---------- */
+  table { border-collapse: collapse; width: 100%; }
+  .main td { padding: 0; border: 0; }          /* 外层容器无边框 */
+  .form  td { border: 1px solid #000; padding: 5px 8px; vertical-align: middle; }
+
+  /* ---------- 表头 / 标题 ---------- */
+  .order-no { text-align: right; font-size: 10px; padding: 2px 4px; }
+  .title {
+    text-align: center;
+    font-size: 20px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    padding: 8px 0 14px 0;
+  }
+
+  /* ---------- 对齐 ---------- */
+  .c   { text-align: center; }
+  .r   { text-align: right; }
+  .amt { text-align: right; font-family: Consolas, "Courier New", monospace; }
+  .lbl { text-align: left; font-weight: normal; }
+  .hd  { text-align: center; font-weight: bold; }   /* 明细表头 */
+
+  /* ---------- 合计 / 汇总强调（仅加粗，保持黑白） ---------- */
+  .sub   { font-weight: bold; }
+  .total { font-weight: bold; }
+  .recv  { font-weight: bold; font-size: 13px; }
+  .words { font-weight: bold; letter-spacing: 1px; }
+
+  /* ---------- 签字区 ---------- */
+  .sign { height: 60px; vertical-align: top; }
+
+  /* ---------- 分页 ---------- */
+  tr { page-break-inside: avoid; }             /* 行不跨页截断 */
+  thead { display: table-header-group; }       /* 明细表头跨页重复 */
+  .no-split { page-break-inside: avoid; }      /* 汇总/页脚区块整体不拆分 */
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     整体：一个大 table 嵌套子 table，不用 div 流式布局
+     ============================================================ -->
+<table class="main">
+
+  <!-- ---- 工号 + 标题 ---- -->
+  <tr><td class="order-no">工号：{{工号}}</td></tr>
+  <tr><td class="title">成都科盟汽车服务有限责任公司维修结算单</td></tr>
+
+  <!-- ---- 顶部送修信息 ---- -->
+  <tr><td>
+    <table class="form">
+      <tr>
+        <td>送修单位：{{送修单位}}</td>
+        <td>联系人：{{联系人}}</td>
+        <td>联系电话：{{联系电话}}</td>
+      </tr>
+      <tr>
+        <td>车牌号：{{车牌号}}</td>
+        <td>车型：{{车型}}</td>
+        <td>发动机号：{{发动机号}}</td>
+      </tr>
+      <tr>
+        <td>车身号：{{车身号}}</td>
+        <td>送修日期：{{送修日期}}</td>
+        <td>里程数：{{里程数}} km</td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- ---- 维修内容明细 ---- -->
+  <tr><td>
+    <table class="form">
+      <thead>
+        <tr class="hd">
+          <td style="width:8%;">序号</td>
+          <td>维修项目</td>
+          <td style="width:15%;">主修人</td>
+          <td style="width:15%;">工时费</td>
+        </tr>
+      </thead>
+      <!-- 数据行：由后端按实际记录循环生成，此处仅演示行结构 -->
+      <tr><td class="c">1</td><td>{{维修项目1}}</td><td class="c">{{主修人1}}</td><td class="amt">{{工时费1}}</td></tr>
+      <tr><td class="c">2</td><td>{{维修项目2}}</td><td class="c">{{主修人2}}</td><td class="amt">{{工时费2}}</td></tr>
+      <tr class="sub"><td colspan="3" class="r">工时费小计</td><td class="amt">{{工时费小计}}</td></tr>
+    </table>
+  </td></tr>
+
+  <!-- ---- 材料清单明细 ---- -->
+  <tr><td>
+    <table class="form">
+      <thead>
+        <tr class="hd">
+          <td style="width:5%;">序号</td>
+          <td style="width:14%;">配件件号</td>
+          <td>配件名称</td>
+          <td style="width:7%;">单位</td>
+          <td style="width:7%;">数量</td>
+          <td style="width:12%;">单价</td>
+          <td style="width:14%;">金额</td>
+        </tr>
+      </thead>
+      <!-- 数据行：由后端按实际记录循环生成，此处仅演示行结构 -->
+      <tr><td class="c">1</td><td>{{配件件号1}}</td><td>{{配件名称1}}</td><td class="c">{{单位1}}</td><td class="c">{{数量1}}</td><td class="amt">{{单价1}}</td><td class="amt">{{金额1}}</td></tr>
+      <tr><td class="c">2</td><td>{{配件件号2}}</td><td>{{配件名称2}}</td><td class="c">{{单位2}}</td><td class="c">{{数量2}}</td><td class="amt">{{单价2}}</td><td class="amt">{{金额2}}</td></tr>
+      <tr><td class="c">3</td><td>{{配件件号3}}</td><td>{{配件名称3}}</td><td class="c">{{单位3}}</td><td class="c">{{数量3}}</td><td class="amt">{{单价3}}</td><td class="amt">{{金额3}}</td></tr>
+      <tr class="sub"><td colspan="6" class="r">材料费小计</td><td class="amt">{{材料费小计}}</td></tr>
+    </table>
+  </td></tr>
+
+  <!-- ---- 底部汇总计算区 ---- -->
+  <tr><td class="no-split">
+    <table class="form">
+      <tr><td class="lbl">材料费</td><td class="amt">{{材料费}}</td><td class="lbl">材料优惠</td><td class="amt">{{材料优惠}}</td></tr>
+      <tr><td class="lbl">工时费</td><td class="amt">{{工时费}}</td><td class="lbl">工时优惠</td><td class="amt">{{工时优惠}}</td></tr>
+      <tr><td class="lbl">管理费</td><td class="amt">{{管理费}}</td><td class="lbl">保险相关</td><td class="amt">{{保险相关}}</td></tr>
+      <tr><td class="lbl">三包</td><td class="amt">{{三包}}</td><td class="lbl">免保</td><td class="amt">{{免保}}</td></tr>
+      <tr class="total"><td class="lbl">总费用</td><td class="amt">{{总费用}}</td><td class="lbl">总优惠</td><td class="amt">{{总优惠}}</td></tr>
+      <tr class="recv"><td class="lbl" colspan="2">应收款</td><td class="amt" colspan="2">{{应收款}}</td></tr>
+      <tr><td colspan="4" class="sign">客户签字：</td></tr>
+      <tr class="words"><td colspan="4">大写金额：{{大写金额}}</td></tr>
+    </table>
+  </td></tr>
+
+  <!-- ---- 页脚 ---- -->
+  <tr><td class="no-split">
+    <table class="form">
+      <tr>
+        <td class="lbl" style="width:12%;">地址</td>
+        <td colspan="3">{{地址}}</td>
+        <td class="lbl" style="width:14%;">服务电话</td>
+        <td>{{服务电话}}</td>
+      </tr>
+      <tr>
+        <td class="lbl">结算人</td>
+        <td>{{结算人}}</td>
+        <td class="lbl">结算日期</td>
+        <td>{{结算日期}}</td>
+        <td class="lbl">出厂日期</td>
+        <td>{{出厂日期}}</td>
+      </tr>
+      <tr>
+        <td colspan="4" class="lbl">收款人签字</td>
+        <td colspan="2" style="height:40px;">&nbsp;</td>
+      </tr>
+    </table>
+  </td></tr>
+
+</table>
+
+</body>
+</html>

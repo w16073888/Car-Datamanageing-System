@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>Non-Vista Machine</Title><Description>Detects Vista by checking if Major Version is greater than or equal to 6.</Description></LocalizedProperties>

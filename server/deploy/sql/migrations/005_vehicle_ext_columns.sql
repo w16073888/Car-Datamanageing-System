@@ -1,0 +1,15 @@
+-- 005: t_vehicle 增加 color / fuel_type / transmission 列（幂等）
+SET @ex1 = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='t_vehicle' AND COLUMN_NAME='color');
+SET @sql1 = IF(@ex1 = 0, 'ALTER TABLE t_vehicle ADD COLUMN color VARCHAR(20) COMMENT ''颜色'' AFTER model', 'SELECT 1');
+PREPARE stmt1 FROM @sql1; EXECUTE stmt1; DEALLOCATE PREPARE stmt1;
+
+SET @ex2 = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='t_vehicle' AND COLUMN_NAME='fuel_type');
+SET @sql2 = IF(@ex2 = 0, 'ALTER TABLE t_vehicle ADD COLUMN fuel_type VARCHAR(20) COMMENT ''燃油类型'' AFTER color', 'SELECT 1');
+PREPARE stmt2 FROM @sql2; EXECUTE stmt2; DEALLOCATE PREPARE stmt2;
+
+SET @ex3 = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='t_vehicle' AND COLUMN_NAME='transmission');
+SET @sql3 = IF(@ex3 = 0, 'ALTER TABLE t_vehicle ADD COLUMN transmission VARCHAR(20) COMMENT ''变速箱'' AFTER fuel_type', 'SELECT 1');
+PREPARE stmt3 FROM @sql3; EXECUTE stmt3; DEALLOCATE PREPARE stmt3;

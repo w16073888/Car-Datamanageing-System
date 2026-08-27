@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>Detectoid for 931621 -- targeting Vista with mswmdm.dll and rapimgr.dll</Title><Description>This is detectoid for 931621. This is to exclude Vista Nsku and Ksku machines unless they have mswmdm.dll and rapimgr.dll on the machine. </Description></LocalizedProperties>

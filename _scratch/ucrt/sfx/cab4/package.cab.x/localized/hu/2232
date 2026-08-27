@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>hu</Language><Title>.NET-keretrendszer 1.1 észlelőprogram</Title><Description>Az észlelőprogram megállapítja, kell-e telepíteni a .NET-keretrendszer 1.1 / LP csomagot. Ha úgy találja, hogy telepítve van (vagyis a rendszerleíró kulcs létezik), akkor NEM ajánlja fel a csomagot.</Description></LocalizedProperties>

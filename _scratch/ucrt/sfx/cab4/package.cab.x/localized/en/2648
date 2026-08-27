@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>IE7 Testing: MS Corporate Domain Filter</Title><Description>This detectoid filters updates so they only apply to machines in NTDEV, SEGROUP, or WINGROUP and have the super-secret reg key configured.</Description></LocalizedProperties>

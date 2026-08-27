@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>zh-tw</Language><Title>.NET Framework 1.1 Bundle 判斷式</Title><Description>此 Detectoid 是用來判斷是否應提供 .NET Framework 1.1 / LP Bundle。若此判斷式的結果為真 (例如，機碼存在)，則不會提供該 Bundle。</Description></LocalizedProperties>

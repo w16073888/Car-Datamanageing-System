@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>zh-cn</Language><Title>.NET Framework 1.1 Bundle Detectoid</Title><Description>此 detectoid 用于确定何时应提供 .NET Framework 1.1 / LP 捆绑软件。如果此 detectoid 被解析为 true（即，存在 regkey），将不提供该捆绑软件。</Description></LocalizedProperties>

@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>ko</Language><Title>.NET Framework 1.1 Bundle Detectoid</Title><Description>이 Detectoid는 .NET Framework 1.1 / LP 번들의 제공 시기를 확인하는 데 사용됩니다. Detectoid에서 true를 확인하면(예를 들어 레지스트리 키가 있는 경우) 번들은 제공되지 않습니다.</Description></LocalizedProperties>

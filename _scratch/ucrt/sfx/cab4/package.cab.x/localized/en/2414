@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>Microsoft.com and NTDEV Domain Targeting for x86 and x64 (no IA64)</Title><Description>This detectoid resolves true if the users machine is a member a corp.microsoft.com or ntdev domain</Description></LocalizedProperties>

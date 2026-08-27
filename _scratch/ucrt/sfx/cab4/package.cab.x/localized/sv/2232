@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>sv</Language><Title>Identifikator för .NET Framework 1.1</Title><Description>Den här identifikatorn används för att identifiera huruvida .NET Framework 1.1/LP-paketet ska erbjudas. Om identifikatorns värde är sant (dvs. registernyckeln finns) kommer paketet INTE att erbjudas.</Description></LocalizedProperties>

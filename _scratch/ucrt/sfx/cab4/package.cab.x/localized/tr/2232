@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>tr</Language><Title>.NET Framework 1.1 Paket Algılayıcı</Title><Description>Bu algılayıcı, .NET Framework 1.1 / LP paketinin ne zaman sunulacağını belirlemek için kullanılır. Bu algılayıcı doğru sonucunu verirse (yani, kayıt defteri anahtarı varsa), paket teklif edilmez.</Description></LocalizedProperties>

@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>el</Language><Title>.NET Framework 1.1 Bundle Detectoid</Title><Description>Αυτό το detectoid χρησιμοποιείται για να προσδιοριστεί πότε πρέπει να παρέχεται το πακέτο .NET Framework 1.1 / LP. Εάν το detectoid αποδειχθεί αληθές (δηλ. το κλειδί μητρώου υπάρχει), το πακέτο ΔΕΝ θα παρέχεται.</Description></LocalizedProperties>

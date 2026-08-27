@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>Detectoid for 931174 -- targeting systems with Windows Vista CEIP regkeys</Title><Description>This detectoid has been created for the Vista Update 931174 to target machines that have the Windows Vista CEIP regkeys set via Group Policy or in the Local User context.</Description></LocalizedProperties>

@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>MS Corp Filter</Title><Description>This detectoid will filter updates to ONLY MS Corp machines.  Approved domains are NTDEV, WINGROUP, REDMOND, and WINSE.</Description></LocalizedProperties>

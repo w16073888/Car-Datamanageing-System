@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>he</Language><Title>.NET Framework 1.1 Bundle Detectoid</Title><Description>Detectoid זה משמש על מנת לזהות אם קיים צורך להציע חבילת NET Framework 1.1 / LP. אם Detectoid מתפענח לערך true (כלומר שקיים regkey), במקרה כזה *לא תתקבל* הצעה לחבילה.</Description></LocalizedProperties>

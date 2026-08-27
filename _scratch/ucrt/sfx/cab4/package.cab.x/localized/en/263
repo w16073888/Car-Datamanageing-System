@@ -1,0 +1,3 @@
+<LocalizedProperties><Language>en</Language><Title>Microsoft Corp Domain filter</Title><Description>This will only allow updates from machines in NTDEV, SEGROUP, WINGROUP , or machines running the secret reg key to see updates.  
+
+</Description></LocalizedProperties>

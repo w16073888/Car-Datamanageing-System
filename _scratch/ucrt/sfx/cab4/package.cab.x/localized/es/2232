@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>es</Language><Title>.NET Framework 1.1 Bundle Detectoid</Title><Description>Este detector se utiliza para identificar cuándo se debe ofrecer el paquete .NET Framework 1.1 / LP. Si el detector resulta verdadero (p.ej., existe regkey), NO se ofrecerá el paquete.</Description></LocalizedProperties>

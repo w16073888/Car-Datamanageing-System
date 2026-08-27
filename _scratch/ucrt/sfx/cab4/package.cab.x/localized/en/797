@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>Detectoid for KB935759 - Update for Windows Vista</Title><Description>This detectoid is used to determine whether to offer update 935759. It detects that 932635 is installed and a required manifest file is not present.</Description></LocalizedProperties>

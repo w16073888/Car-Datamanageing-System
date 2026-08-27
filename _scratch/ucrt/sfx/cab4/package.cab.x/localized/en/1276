@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>Windows Small Business Server R2</Title><Description>This detection element evaluates Windows Servers and returns true if SBS 2003 R2 (release two) is detected as installed.</Description></LocalizedProperties>

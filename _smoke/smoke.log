@@ -1,0 +1,9 @@
+﻿[13:33:02.485] === 1. restart client ===
+[13:33:03.582] started new client, waiting for login window...
+[13:33:04.293] login window appeared.
+[13:33:04.427]   snap: 01-login.png (560x580)
+[13:33:04.429] === 2. login (工号=1, 密码=123456) ===
+[13:33:06.007] logged in, main window appeared.
+[13:33:06.078]   snap: 02-main.png (1600x900)
+[13:33:06.097] === 3. open 前台业务->业务报修 ===
+[13:33:22.313] FAIL: 业务报修 dialog not found

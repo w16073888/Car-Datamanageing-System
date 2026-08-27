@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>pt</Language><Title>.NET Framework 1.1 Bundle Detectoid</Title><Description>Este detector é utilizado para determinar se o conjunto .NET Framework 1.1 / LP deve ser oferecido. Se a resposta for afirmativa (i.e., se a chave de registo existir), então o conjunto NÃO SERÁ oferecido.</Description></LocalizedProperties>

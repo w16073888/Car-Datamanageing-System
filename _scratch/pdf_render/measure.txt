@@ -1,0 +1,23 @@
+contentW=549.921 usableH=796.535
+  block 0 grow=0 natural=24
+  block 1 grow=0 natural=77
+  block 2 grow=1 natural=174
+  block 3 grow=1 natural=108
+  block 4 grow=0 natural=79
+  block 5 grow=0 natural=41
+  sumFixed=221 sumGrow=282 extra=293.535 growExtra=146.768
+  => FILL_OK
+[png 3x] firstNonWhiteRow=2 lastNonWhiteRow=2382 imgH=2389
+  => иж????????=0.666667pt (0.235185mm)  ?o???????=2pt
+[quote] contentW=549.921 usableH=796.535
+  qblock 0 grow=0 natural=24
+  qblock 1 grow=0 natural=95
+  qblock 2 grow=0 natural=70
+  qblock 3 grow=0 natural=84
+  qblock 4 grow=0 natural=40
+  qblock 5 grow=1 natural=152
+  qblock 6 grow=1 natural=130
+  qblock 7 grow=0 natural=54
+  qblock 8 grow=0 natural=41
+  sumFixed=408 sumGrow=282 extra=106.535 growExtra=53.2677
+  => FILL_OK

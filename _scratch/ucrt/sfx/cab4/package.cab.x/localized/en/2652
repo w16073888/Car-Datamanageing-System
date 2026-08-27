@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>LIP is not installed</Title><Description>Detects that a system does not have a LIP language installed so those users don't get updates in the base language.</Description></LocalizedProperties>

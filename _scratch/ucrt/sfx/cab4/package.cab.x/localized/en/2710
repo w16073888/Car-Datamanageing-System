@@ -1,0 +1,1 @@
+<LocalizedProperties><Language>en</Language><Title>Hold Em banned languages filter</Title><Description>This detectoid will return true (is Installed) if the install language of the OS is anything other than Chinese Traditional, Chinese Simplified, Chinese Hong Kong, Korean or Arabic.</Description></LocalizedProperties>
