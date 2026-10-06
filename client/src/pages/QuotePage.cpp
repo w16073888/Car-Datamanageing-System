@@ -27,6 +27,58 @@
 #include <QSignalBlocker>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QComboBox>
+#include <QStyledItemDelegate>
+
+// ============================================================
+// 工时表的两个单元格委托（与「结算修改」页同款，但类名独立避免符号冲突）
+// ============================================================
+namespace {
+
+// 类别下拉（机电/钣金/喷漆）
+class QuoteLaborTypeDelegate : public QStyledItemDelegate
+{
+public:
+    explicit QuoteLaborTypeDelegate(QObject *parent = nullptr)
+        : QStyledItemDelegate(parent) {}
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &, const QModelIndex &) const override
+    {
+        QComboBox *combo = new QComboBox(parent);
+        combo->addItems({"机电", "钣金", "喷漆"});
+        return combo;
+    }
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        if (auto *combo = qobject_cast<QComboBox*>(editor)) {
+            const int idx = combo->findText(index.data().toString());
+            combo->setCurrentIndex(idx >= 0 ? idx : 0);
+        }
+    }
+    void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
+    {
+        if (auto *combo = qobject_cast<QComboBox*>(editor))
+            model->setData(index, combo->currentText());
+    }
+};
+
+// 费用：单元格存原始数值，显示时加 ¥
+class QuoteLaborMoneyDelegate : public QStyledItemDelegate
+{
+public:
+    explicit QuoteLaborMoneyDelegate(QObject *parent = nullptr)
+        : QStyledItemDelegate(parent) {}
+
+    QString displayText(const QVariant &value, const QLocale &locale) const override
+    {
+        bool ok = false;
+        const double v = value.toDouble(&ok);
+        if (ok) return QString("¥%1").arg(v, 0, 'f', 2);
+        return QStyledItemDelegate::displayText(value, locale);
+    }
+};
+
+}   // namespace
 
 QuotePage::QuotePage(QWidget *parent)
     : QWidget(parent)
@@ -51,6 +103,11 @@ void QuotePage::refreshData()
     m_currentOrderId = 0;
     m_currentOrderNo.clear();
     m_currentStatus.clear();
+    m_laborEntries.clear();
+    m_laborDeletedIds.clear();
+    m_laborEditable = false;
+    if (m_btnAddLabor) m_btnAddLabor->setVisible(false);
+    if (m_btnDelLabor) m_btnDelLabor->setVisible(false);
     m_btnNotifyBilling->setVisible(false);
     m_btnCancelNotify->setVisible(false);
     m_btnSettle->setVisible(false);
@@ -102,13 +159,41 @@ void QuotePage::setupUI()
 
     infoLayout->addWidget(new QLabel("工单明细:"));
     // ---- 工时费明细表 ----
-    QLabel *laborLabel = new QLabel("▸ 工时费明细");
-    laborLabel->setStyleSheet("font-weight:bold;font-size:15px;color:#2c3e50;margin-top:6px;");
-    infoLayout->addWidget(laborLabel);
+    {
+        QHBoxLayout *laborHeadRow = new QHBoxLayout;
+        laborHeadRow->setSpacing(6);
+        QLabel *laborLabel = new QLabel("▸ 工时费明细");
+        laborLabel->setStyleSheet("font-weight:bold;font-size:15px;color:#2c3e50;margin-top:6px;");
+        laborHeadRow->addWidget(laborLabel, 1);
+
+        m_btnAddLabor = new QPushButton("＋新增工时");
+        m_btnAddLabor->setStyleSheet(
+            "QPushButton{padding:3px 12px;border:none;border-radius:3px;"
+            "background:#3498db;color:#fff;font-size:12px;font-weight:bold;}"
+            "QPushButton:hover{background:#2980b9;}");
+        m_btnAddLabor->setVisible(false);
+        laborHeadRow->addWidget(m_btnAddLabor);
+
+        m_btnDelLabor = new QPushButton("－删除选中");
+        m_btnDelLabor->setStyleSheet(
+            "QPushButton{padding:3px 12px;border:none;border-radius:3px;"
+            "background:#e74c3c;color:#fff;font-size:12px;font-weight:bold;}"
+            "QPushButton:hover{background:#c0392b;}");
+        m_btnDelLabor->setVisible(false);
+        m_btnDelLabor->setToolTip("先点中要删除的那条工时（左列或右列），再点此按钮");
+        laborHeadRow->addWidget(m_btnDelLabor);
+
+        infoLayout->addLayout(laborHeadRow);
+    }
     m_laborTable = new QTableWidget(0, 9);
     m_laborTable->setHorizontalHeaderLabels({"类别","主修人","维修内容","费用","","类别","主修人","维修内容","费用"});
-    m_laborTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_laborTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_laborTable->setEditTriggers(QAbstractItemView::DoubleClicked);
+    // 类别下拉 / 费用金额后缀（左右两组各挂一次）
+    for (int c : {0, 5})
+        m_laborTable->setItemDelegateForColumn(c, new QuoteLaborTypeDelegate(this));
+    for (int c : {3, 8})
+        m_laborTable->setItemDelegateForColumn(c, new QuoteLaborMoneyDelegate(this));
     m_laborTable->verticalHeader()->setVisible(false);
     m_laborTable->horizontalHeader()->setStretchLastSection(true);
     // 左组: 类别/主修人 不压缩，维修内容/费用 压缩
@@ -337,6 +422,8 @@ void QuotePage::setupUI()
     connect(m_btnSavePdf, &QPushButton::clicked, this, &QuotePage::onSaveToPdf);
     connect(m_btnPrint, &QPushButton::clicked, this, &QuotePage::onPrintSettlement);
     connect(m_btnSaveEdit, &QPushButton::clicked, this, &QuotePage::onSaveEdit);
+    connect(m_btnAddLabor, &QPushButton::clicked, this, &QuotePage::onAddLaborRow);
+    connect(m_btnDelLabor, &QPushButton::clicked, this, &QuotePage::onDeleteLaborRow);
     connect(m_editOtherFee, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &QuotePage::onFeeEditChanged);
     connect(m_editMgmtFee, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -446,6 +533,153 @@ void QuotePage::onOrderSearch()
 // ============================================================
 // 加载工单详细信息
 // ============================================================
+// ============================================================
+// rebuildLaborTable — 按 m_laborEntries 重建工时表
+//   工时表是"一行两条"：前 N/2 条放左组(列 0-3)，其余放右组(列 5-8)
+// ============================================================
+void QuotePage::rebuildLaborTable()
+{
+    m_laborTable->blockSignals(true);
+
+    const int n = m_laborEntries.size();
+    const int rowCount = (n + 1) / 2;          // ceil(N/2)
+    m_laborTable->setRowCount(rowCount);
+    m_laborTable->clearContents();
+
+    for (int i = 0; i < n; i++) {
+        const int row  = (i < rowCount) ? i : (i - rowCount);
+        const int base = (i < rowCount) ? 0 : 5;
+        const LaborEntry &e = m_laborEntries[i];
+
+        QTableWidgetItem *typItem = new QTableWidgetItem(e.type.isEmpty() ? "机电" : e.type);
+        typItem->setData(Qt::UserRole, e.id);      // 行 ID（0=本次新增）
+        if (!m_laborEditable)
+            typItem->setFlags(typItem->flags() & ~Qt::ItemIsEditable);
+        m_laborTable->setItem(row, base + 0, typItem);
+
+        // 主修人：已有条目沿用库里的；本次新增的按类别取本工单主修人
+        const QString person = (e.id == 0) ? techNameForType(e.type) : e.person;
+        QTableWidgetItem *personItem = new QTableWidgetItem(person.isEmpty() ? "-" : person);
+        personItem->setFlags(personItem->flags() & ~Qt::ItemIsEditable);
+        m_laborTable->setItem(row, base + 1, personItem);
+
+        QTableWidgetItem *contentItem = new QTableWidgetItem(e.content);
+        if (!m_laborEditable)
+            contentItem->setFlags(contentItem->flags() & ~Qt::ItemIsEditable);
+        m_laborTable->setItem(row, base + 2, contentItem);
+
+        QTableWidgetItem *feeItem = new QTableWidgetItem(QString::number(e.fee, 'f', 2));
+        if (!m_laborEditable)
+            feeItem->setFlags(feeItem->flags() & ~Qt::ItemIsEditable);
+        m_laborTable->setItem(row, base + 3, feeItem);
+    }
+
+    m_laborTable->blockSignals(false);
+
+    m_btnAddLabor->setVisible(m_laborEditable);
+    m_btnDelLabor->setVisible(m_laborEditable);
+}
+
+// ============================================================
+// syncLaborEntriesFromTable — 把表格里的编辑回读进 m_laborEntries
+//   增 / 删 / 保存前都要先同步，否则重建表格会丢掉未保存的单元格编辑
+// ============================================================
+void QuotePage::syncLaborEntriesFromTable()
+{
+    const int n = m_laborEntries.size();
+    if (n == 0)
+        return;
+    const int rowCount = (n + 1) / 2;
+    for (int i = 0; i < n; i++) {
+        const int row  = (i < rowCount) ? i : (i - rowCount);
+        const int base = (i < rowCount) ? 0 : 5;
+        LaborEntry &e = m_laborEntries[i];
+
+        if (QTableWidgetItem *it = m_laborTable->item(row, base + 0)) {
+            const QString t = it->text().trimmed();
+            if (!t.isEmpty())
+                e.type = t;
+        }
+        if (QTableWidgetItem *it = m_laborTable->item(row, base + 1)) {
+            const QString p = it->text().trimmed();
+            e.person = (p == "-") ? QString() : p;
+        }
+        if (QTableWidgetItem *it = m_laborTable->item(row, base + 2)) {
+            const QString c = it->text().trimmed();
+            e.content = (c == "-") ? QString() : c;
+        }
+        if (QTableWidgetItem *it = m_laborTable->item(row, base + 3))
+            e.fee = it->text().remove("¥").toDouble();
+    }
+}
+
+// ============================================================
+// techNameForType — 按类别取本工单的主修人姓名（新增工时条目用）
+// ============================================================
+QString QuotePage::techNameForType(const QString &type) const
+{
+    if (m_currentOrderId == 0)
+        return QString();
+    const char *col = (type == "钣金") ? "body_tech_id"
+                    : (type == "喷漆") ? "paint_tech_id" : "mechanic_tech_id";
+    RemoteQuery q;
+    q.prepare(QString("SELECT COALESCE(e.name,'') FROM t_workorder w "
+                      "LEFT JOIN t_employee e ON e.id = w.%1 WHERE w.id = :oid").arg(col));
+    q.bindValue(":oid", m_currentOrderId);
+    if (q.exec() && q.next())
+        return q.value(0).toString();
+    return QString();
+}
+
+// ============================================================
+// onAddLaborRow — ＋新增工时条目（保存时才落库）
+// ============================================================
+void QuotePage::onAddLaborRow()
+{
+    if (!m_laborEditable || m_currentOrderId == 0)
+        return;
+    syncLaborEntriesFromTable();          // 先保住已改的内容
+    LaborEntry e;
+    e.id = 0;                             // 0=本次新增，保存时 INSERT
+    e.type = "机电";
+    e.fee = 0;
+    m_laborEntries.append(e);
+    rebuildLaborTable();
+    m_laborTable->scrollToBottom();
+}
+
+// ============================================================
+// onDeleteLaborRow — －删除选中工时条目（按当前单元格判断左组还是右组）
+//   只从列表里移除，点「保存修改」才真正删库
+// ============================================================
+void QuotePage::onDeleteLaborRow()
+{
+    if (!m_laborEditable || m_currentOrderId == 0)
+        return;
+    if (m_laborEntries.isEmpty())
+        return;
+
+    const int row = m_laborTable->currentRow();
+    const int col = m_laborTable->currentColumn();
+    if (row < 0 || col < 0) {
+        QMessageBox::information(this, "提示",
+            "请先用鼠标点中要删除的那条工时（左列或右列），再点「删除选中」。");
+        return;
+    }
+
+    syncLaborEntriesFromTable();
+    const int n = m_laborEntries.size();
+    const int rowCount = (n + 1) / 2;
+    const int idx = (col >= 5) ? row + rowCount : row;   // 右组条目 = 行 + 左组条数
+    if (idx < 0 || idx >= n)
+        return;                                          // 点在右组的空位上
+
+    if (m_laborEntries[idx].id > 0)
+        m_laborDeletedIds << m_laborEntries[idx].id;      // 已有条目：记下来，保存时删除
+    m_laborEntries.removeAt(idx);
+    rebuildLaborTable();
+}
+
 void QuotePage::loadOrderInfo(const QString &orderNo)
 {
     m_currentOrderNo = orderNo;
@@ -513,7 +747,7 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
              ownerName, ownerPhone, svcAdvisor, repairContent, createdAt);
     m_lblVehicleInfo->setText(vehicleHtml);
 
-    // 2. 工时费明细表 — 先收集全部条目，再按"先左列后右列"填充
+    // 2. 工时费明细表 — 先收集全部条目到 m_laborEntries，再重建表格
     RemoteQuery lq;
     lq.prepare("SELECT id, item_type, repair_person, repair_content, fee "
                "FROM t_workorder_repair_item "
@@ -521,50 +755,30 @@ void QuotePage::loadOrderInfo(const QString &orderNo)
     lq.bindValue(":oid", m_currentOrderId);
     lq.exec();
 
-    struct LaborItem { int id; QString typ, person, content; double fee; };
-    QList<LaborItem> laborItems;
+    m_laborEntries.clear();
+    m_laborDeletedIds.clear();
     double laborFromItems = 0;
     while (lq.next()) {
-        LaborItem it;
-        it.id      = lq.value(0).toInt();
-        it.typ     = lq.value(1).toString();
-        it.person  = lq.value(2).toString();
-        it.content = lq.value(3).toString().trimmed();
-        it.fee     = lq.value(4).toDouble();
-        laborFromItems += it.fee;
-        laborItems.append(it);
+        LaborEntry e;
+        e.id      = lq.value(0).toInt();
+        e.type    = lq.value(1).toString();
+        e.person  = lq.value(2).toString();
+        e.content = lq.value(3).toString().trimmed();
+        e.fee     = lq.value(4).toDouble();
+        laborFromItems += e.fee;
+        m_laborEntries.append(e);
     }
     double displayLabor = (laborFee > 0) ? laborFee : laborFromItems;
 
-    int laborRowCount = (laborItems.size() + 1) / 2;  // ceil(N/2)
-    m_laborTable->setRowCount(laborRowCount);
     bool canEdit = (m_currentStatus == "已派工" || m_currentStatus == "待提单");
     // 材料单价：在已派工/待提单基础上，结算（已提单）时也允许修改，以便结算前调整材料费
     bool canEditPrice = (canEdit || m_currentStatus == "已提单");
     // 工时费：未结算工单（含已提单）均可双击修改，以便结算前调整工时费
     bool canEditLaborFee = (canEdit || m_currentStatus == "已提单");
-    for (int i = 0; i < laborItems.size(); i++) {
-        int row = (i < laborRowCount) ? i : (i - laborRowCount);
-        int colBase = (i < laborRowCount) ? 0 : 5;
-        const LaborItem &it = laborItems[i];
+    // 工时条目增删与工时费同权限
+    m_laborEditable = canEditLaborFee;
 
-        QTableWidgetItem *typItem = new QTableWidgetItem(it.typ);
-        typItem->setFlags(typItem->flags() & ~Qt::ItemIsEditable);
-        typItem->setData(Qt::UserRole, it.id);
-        m_laborTable->setItem(row, colBase + 0, typItem);
-
-        QTableWidgetItem *personItem = new QTableWidgetItem(it.person.isEmpty() ? "-" : it.person);
-        personItem->setFlags(personItem->flags() & ~Qt::ItemIsEditable);
-        m_laborTable->setItem(row, colBase + 1, personItem);
-
-        QTableWidgetItem *contentItem = new QTableWidgetItem(it.content.isEmpty() ? "-" : it.content);
-        contentItem->setFlags(contentItem->flags() & ~Qt::ItemIsEditable);
-        m_laborTable->setItem(row, colBase + 2, contentItem);
-
-        QTableWidgetItem *feeItem = new QTableWidgetItem(QString("¥%1").arg(it.fee, 0, 'f', 2));
-        if (!canEditLaborFee) feeItem->setFlags(feeItem->flags() & ~Qt::ItemIsEditable);
-        m_laborTable->setItem(row, colBase + 3, feeItem);
-    }
+    rebuildLaborTable();
 
     // 3. 材料明细表 — 先收集全部条目，再按"先左列后右列"填充
     RemoteQuery pq;
@@ -734,21 +948,43 @@ void QuotePage::onSaveEdit()
 
     RemoteQuery q;
 
-    // 1. 更新工时费明细（t_workorder_repair_item.fee）
-    for (int r = 0; r < m_laborTable->rowCount(); r++) {
-        for (int colBase : {0, 5}) {
-            QTableWidgetItem *idItem  = m_laborTable->item(r, colBase + 0);
-            QTableWidgetItem *feeItem = m_laborTable->item(r, colBase + 3);
-            if (!idItem || !feeItem) continue;
-            int repairId = idItem->data(Qt::UserRole).toInt();
-            if (repairId == 0) continue;
-            double newFee = feeItem->text().remove("¥").toDouble();
-            q.prepare("UPDATE t_workorder_repair_item SET fee = :f WHERE id = :id");
-            q.bindValue(":f", newFee);
-            q.bindValue(":id", repairId);
+    // 1. 工时费明细：先落库本轮的增删改（t_workorder_repair_item）
+    syncLaborEntriesFromTable();
+
+    // 1a. 本次删掉的条目
+    for (int delId : m_laborDeletedIds) {
+        q.prepare("DELETE FROM t_workorder_repair_item WHERE id = :id AND workorder_id = :oid");
+        q.bindValue(":id", delId);
+        q.bindValue(":oid", m_currentOrderId);
+        q.exec();
+    }
+
+    // 1b. 其余条目：已有 id 的更新，id=0 的新增
+    for (const LaborEntry &e : m_laborEntries) {
+        const QString person = e.id == 0 ? techNameForType(e.type) : e.person;
+        if (e.id > 0) {
+            q.prepare("UPDATE t_workorder_repair_item SET item_type = :t, repair_person = :p, "
+                      "repair_content = :c, fee = :f WHERE id = :id AND workorder_id = :oid");
+            q.bindValue(":t", e.type);
+            q.bindValue(":p", person);
+            q.bindValue(":c", e.content);
+            q.bindValue(":f", e.fee);
+            q.bindValue(":id", e.id);
+            q.bindValue(":oid", m_currentOrderId);
+            q.exec();
+        } else {
+            q.prepare("INSERT INTO t_workorder_repair_item "
+                      "(workorder_id, item_type, repair_person, repair_content, fee) "
+                      "VALUES (:oid, :t, :p, :c, :f)");
+            q.bindValue(":oid", m_currentOrderId);
+            q.bindValue(":t", e.type);
+            q.bindValue(":p", person);
+            q.bindValue(":c", e.content);
+            q.bindValue(":f", e.fee);
             q.exec();
         }
     }
+    m_laborDeletedIds.clear();
 
     // 2. 更新材料单价并写回 material_fee（t_workorder_item + t_workorder）
     savePartPriceEdits();

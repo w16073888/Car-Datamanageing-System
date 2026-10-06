@@ -32,6 +32,7 @@
 #include <QButtonGroup>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QCalendarWidget>
 
 #define S_BTN1 "QPushButton{padding:6px 14px;border:none;border-radius:3px;background:#3498db;color:#fff;font-size:12px;font-weight:bold;}"
 #define S_BTN1H S_BTN1 "QPushButton:hover{background:#2980b9;}"
@@ -39,6 +40,76 @@
 #define S_BTN2H S_BTN2 "QPushButton:hover{background:#219a52;}"
 #define S_BTNG "QPushButton{padding:6px 14px;border:1px solid #bdc3c7;border-radius:3px;background:#ecf0f1;font-size:12px;}"
 #define S_BTNGH S_BTNG "QPushButton:hover{background:#d5dbdb;}"
+
+// ============================================================
+// 购车日期可空：QDateEdit 没有原生"空"状态，这里以最小日期作为哨兵值，
+// 配合 setSpecialValueText(" ") 使其显示为空白；保存时写 NULL。
+// （空字符串会关闭特殊值显示，故用单个空格）
+// ============================================================
+static const QDate kEmptyDate(1900, 1, 1);
+
+static bool isDateEmpty(const QDateEdit *e)
+{
+    return !e->date().isValid() || e->date() == kEmptyDate;
+}
+
+// 空置状态下打开日历：把日历翻到当前月份显示（只翻页，不改已选日期），
+// 否则日历会停在使用者需要逐月翻的 1900 年。
+// 使用者未点选就关闭日历时，QCalendarPopup 会回填打开前的日期（仍为空），
+// 因此这里翻页不会破坏"空置"语义。
+class EmptyDatePageFilter : public QObject
+{
+public:
+    explicit EmptyDatePageFilter(QDateEdit *edit, QObject *parent = nullptr)
+        : QObject(parent), m_edit(edit) {}
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override
+    {
+        if (ev->type() == QEvent::Show && m_edit && isDateEmpty(m_edit)) {
+            if (auto *cw = qobject_cast<QCalendarWidget*>(obj)) {
+                const QDate today = QDate::currentDate();
+                cw->setCurrentPage(today.year(), today.month());
+            }
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+
+private:
+    QDateEdit *m_edit;
+};
+
+static void setupOptionalDate(QDateEdit *e)
+{
+    e->setMinimumDate(kEmptyDate);
+    e->setSpecialValueText(" ");
+    e->setDate(kEmptyDate);            // 默认空置
+    if (QCalendarWidget *cw = e->calendarWidget())
+        cw->installEventFilter(new EmptyDatePageFilter(e, cw));
+}
+
+// 空 → NULL；非空 → yyyy-MM-dd
+static QJsonValue dateOrNull(const QDateEdit *e)
+{
+    return RemoteDb::v(isDateEmpty(e) ? QVariant(QString()) : QVariant(e->date()));
+}
+
+// 日期输入框旁的「清空」小按钮（把日期置回空置状态）
+static QPushButton *makeClearDateButton(QDateEdit *edit, QWidget *parent)
+{
+    QPushButton *btn = new QPushButton("清空", parent);
+    btn->setToolTip("清空日期（可留空不填）");
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedHeight(20);
+    btn->setStyleSheet(
+        "QPushButton{padding:0 6px;border:1px solid #bdc3c7;border-radius:3px;"
+        "background:#ecf0f1;font-size:11px;}"
+        "QPushButton:hover{background:#d5dbdb;}");
+    QObject::connect(btn, &QPushButton::clicked, edit, [edit]() {
+        edit->setDate(kEmptyDate);
+    });
+    return btn;
+}
 
 // 紧凑输入框样式
 #define S_COMPACT \
@@ -118,7 +189,7 @@ QList<QWidget*> FrontDeskPage::navFullChain() const
     if (m_state == STATE_SEARCH) {
         chain = { m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel };
     } else if (m_state == STATE_NEW_CAR) {
-        chain = { m_nPlate, m_nVin, m_nEngine, m_nBrand, m_nModel, m_nColor, m_nFuel, m_nTrans,
+        chain = { m_nPlate, m_nVin, m_nEngine, m_nModel, m_nColor, m_nFuel, m_nTrans,
                   m_nOwner, m_nPhone, m_nAddress, m_nPurchase };
     } else if (m_state == STATE_DISPATCH) {
         // 报修行按类型顺序（机电 → 钣金 → 喷漆），内容+费用各占一个输入位；
@@ -143,7 +214,7 @@ QList<QWidget*> FrontDeskPage::navTextChain() const
     if (m_state == STATE_SEARCH) {
         chain = { m_sPlate, m_sVin, m_sEngine, m_sOwner, m_sPhone, m_sModel };
     } else if (m_state == STATE_NEW_CAR) {
-        chain = { m_nPlate, m_nVin, m_nEngine, m_nBrand, m_nModel, m_nOwner, m_nPhone, m_nAddress };
+        chain = { m_nPlate, m_nVin, m_nEngine, m_nModel, m_nOwner, m_nPhone, m_nAddress };
     } else if (m_state == STATE_DISPATCH) {
         QStringList typeOrder = { "机电", "钣金", "喷漆" };
         QList<const ItemRow*> ordered;
@@ -337,7 +408,7 @@ void FrontDeskPage::setupUI()
         e->setStyleSheet(sEdit);
     };
     mkEdit(m_dispPlate); mkEdit(m_dispVin); mkEdit(m_dispEngine);
-    mkEdit(m_dispBrand); mkEdit(m_dispModel);
+    mkEdit(m_dispModel);
     mkEdit(m_dispOwner); mkEdit(m_dispPhone); mkEdit(m_dispAddress);
     m_dispColor = new QComboBox; m_dispColor->setEditable(true);
     m_dispColor->addItems({"","白","黑","银","红","蓝","绿","灰","黄","棕","橙","紫"});
@@ -352,14 +423,16 @@ void FrontDeskPage::setupUI()
     m_dispPurchase->setCalendarPopup(true);
     m_dispPurchase->setDisplayFormat("yyyy-MM-dd");
     m_dispPurchase->setStyleSheet(sEdit);
+    setupOptionalDate(m_dispPurchase);   // 购车日期可空（未填时显示为空）
     // 固定宽度（车牌/VIN/车主/电话/颜色/油类/变速箱 加长）
     m_dispPlate->setFixedWidth(130);
     m_dispVin->setFixedWidth(210);
     m_dispEngine->setFixedWidth(150);
-    m_dispBrand->setFixedWidth(150);
     m_dispModel->setFixedWidth(150);
     m_dispOwner->setFixedWidth(90);
     m_dispPhone->setFixedWidth(140);
+    m_dispPhone->setToolTip("可填 1~3 个号码，用 / 或空格分隔\n"
+                            "如 13800138000/13900139000/13700137000");
     m_dispAddress->setFixedWidth(150);
 
     // 第0行：车牌 + VIN + 发动机 + 车型
@@ -369,7 +442,6 @@ void FrontDeskPage::setupUI()
         row->addWidget(L("车牌:")); row->addWidget(m_dispPlate);
         row->addWidget(L("VIN:"));  row->addWidget(m_dispVin);
         row->addWidget(L("发动机:")); row->addWidget(m_dispEngine);
-        row->addWidget(L("公司:")); row->addWidget(m_dispBrand);
         row->addWidget(L("车型:")); row->addWidget(m_dispModel);
         row->addStretch();
         igOuter->addLayout(row);
@@ -385,6 +457,7 @@ void FrontDeskPage::setupUI()
         row->addWidget(L("油类:")); row->addWidget(m_dispFuel);
         row->addWidget(L("变速箱:")); row->addWidget(m_dispTrans);
         row->addWidget(L("购车:")); row->addWidget(m_dispPurchase);
+        row->addWidget(makeClearDateButton(m_dispPurchase, this));
         row->addStretch();
         igOuter->addLayout(row);
     }
@@ -420,28 +493,29 @@ void FrontDeskPage::setupUI()
     m_nPlate = new QLineEdit;   m_nPlate->setPlaceholderText("*必填");
     m_nVin   = new QLineEdit;
     m_nEngine = new QLineEdit;
-    m_nBrand = new QLineEdit;   m_nBrand->setPlaceholderText("公司/厂家");
     m_nModel = new QLineEdit;   m_nModel->setPlaceholderText("*必填");
     m_nOwner = new QLineEdit;   m_nOwner->setPlaceholderText("*必填");
-    m_nPhone = new QLineEdit;   m_nPhone->setPlaceholderText("*必填");
+    m_nPhone = new QLineEdit;   m_nPhone->setPlaceholderText("*必填，多个用/分隔");
+    m_nPhone->setToolTip("可填 1~3 个号码，用 / 或空格分隔\n"
+                         "如 13800138000/13900139000/13700137000");
     m_nAddress = new QLineEdit;
     m_nColor = new QComboBox; m_nColor->setEditable(true); m_nColor->addItems({"","白","黑","银","红","蓝","绿","灰","黄","棕","橙","紫"});
     m_nFuel  = new QComboBox; m_nFuel->setEditable(true);  m_nFuel->addItems({"","汽油","柴油","电动","混动","天然气"});
     m_nTrans = new QComboBox; m_nTrans->setEditable(true); m_nTrans->addItems({"","自动","手动","无级变速","双离合","AMT"});
-    m_nPurchase = new QDateEdit; m_nPurchase->setCalendarPopup(true); m_nPurchase->setDisplayFormat("yyyy-MM-dd"); m_nPurchase->setDate(QDate::currentDate());
+    m_nPurchase = new QDateEdit; m_nPurchase->setCalendarPopup(true); m_nPurchase->setDisplayFormat("yyyy-MM-dd");
+    setupOptionalDate(m_nPurchase);   // 购车日期可空，默认空置
 
     // 最小宽度设置（控制在窗口内不产生横向滚动条）
     m_nPlate->setMinimumWidth(200);
     m_nVin->setMinimumWidth(400);
     m_nEngine->setMinimumWidth(200);
-    m_nBrand->setMinimumWidth(200);
     m_nOwner->setMinimumWidth(100);
     m_nPhone->setMinimumWidth(200);
     m_nModel->setMinimumWidth(400);
 
     // 安装回车导航事件过滤器
     for (auto *w : {static_cast<QWidget*>(m_nPlate),static_cast<QWidget*>(m_nVin),static_cast<QWidget*>(m_nEngine),
-                    static_cast<QWidget*>(m_nBrand),static_cast<QWidget*>(m_nModel),static_cast<QWidget*>(m_nColor),
+                    static_cast<QWidget*>(m_nModel),static_cast<QWidget*>(m_nColor),
                     static_cast<QWidget*>(m_nFuel),static_cast<QWidget*>(m_nTrans),static_cast<QWidget*>(m_nOwner),
                     static_cast<QWidget*>(m_nPhone),static_cast<QWidget*>(m_nAddress),static_cast<QWidget*>(m_nPurchase)})
         w->installEventFilter(this);
@@ -449,11 +523,9 @@ void FrontDeskPage::setupUI()
     ng->addWidget(L("车牌*:"),0,0); ng->addWidget(m_nPlate,0,1);
     ng->addWidget(L("VIN:"),0,2);   ng->addWidget(m_nVin,0,3);
     ng->addWidget(L("发动机:"),0,4); ng->addWidget(m_nEngine,0,5);
-    // 第1行：公司 + 车型* + 颜色 + 油类 + 变速箱（公司/车型共享原车型输入区域）
+    // 第1行：车型* + 颜色 + 油类 + 变速箱
     {
         QHBoxLayout *row1 = new QHBoxLayout;
-        row1->addWidget(L("公司:"));
-        row1->addWidget(m_nBrand, 1);
         row1->addWidget(L("车型*:"));
         row1->addWidget(m_nModel, 1);
         row1->addWidget(L("颜色:"));
@@ -468,7 +540,16 @@ void FrontDeskPage::setupUI()
     ng->addWidget(L("车主*:"),2,0); ng->addWidget(m_nOwner,2,1);
     ng->addWidget(L("电话*:"),2,2); ng->addWidget(m_nPhone,2,3);
     ng->addWidget(L("地址:"),2,4);  ng->addWidget(m_nAddress,2,5);
-    ng->addWidget(L("购车时间:"),3,0); ng->addWidget(m_nPurchase,3,1);
+    // 第3行：购车时间（可空，默认空置）+ 清空按钮
+    {
+        ng->addWidget(L("购车时间:"),3,0);
+        QHBoxLayout *row3 = new QHBoxLayout;
+        row3->setSpacing(4);
+        row3->addWidget(m_nPurchase);
+        row3->addWidget(makeClearDateButton(m_nPurchase, this));
+        row3->addStretch();
+        ng->addLayout(row3,3,1,1,5);
+    }
 
     // 保存 + 取消按钮
     {
@@ -767,17 +848,7 @@ void FrontDeskPage::setupUI()
             selectPart(m_partRows[idx][0], m_partRows[idx][4]); // name, priceRaw
     });
 
-    // 新车录入：公司/车型 模糊搜索下拉（非模态，同车辆查找/备件搜索模式）
-    m_brandCompleter = new SearchCompleter(this);
-    m_brandCompleter->setEdit(m_nBrand);
-    connect(m_brandCompleter, &SearchCompleter::selected, this, [this](int idx) {
-        if (idx >= 0 && idx < m_brandRows.size()) {
-            QSignalBlocker blocker(m_nBrand);   // 回填时抑制 textChanged，避免触发二次搜索
-            m_nBrand->setText(m_brandRows[idx][0]);
-        }
-    });
-    connect(m_nBrand, &QLineEdit::textChanged, this, &FrontDeskPage::onBrandLiveSearch);
-
+    // 新车录入：车型 模糊搜索下拉（非模态，同车辆查找/备件搜索模式）
     m_modelCompleter = new SearchCompleter(this);
     m_modelCompleter->setEdit(m_nModel);
     connect(m_modelCompleter, &SearchCompleter::selected, this, [this](int idx) {
@@ -989,7 +1060,7 @@ void FrontDeskPage::resetForm()
 {
     m_lockedVid = 0; m_foundVid = 0;
     m_mergeTargetWoid = 0; m_mergeTargetOrderNo.clear();
-    m_editMode = false; m_editMatFee = 0;
+    m_editMode = false; m_editMatFee = 0; m_editOrderStatus.clear();
     m_btnDeleteOrder->setVisible(false);
     setPartsAreaMode(false);
     m_sPlate->clear(); m_sVin->clear(); m_sEngine->clear();
@@ -1187,42 +1258,10 @@ void FrontDeskPage::onVehicleSearchFinalize()
 }
 
 // ============================================================
-// onBrandLiveSearch / onModelLiveSearch — 新车录入「公司」「车型」逐键模糊搜索
+// onModelLiveSearch — 新车录入「车型」逐键模糊搜索
 //   复用 SearchCompleter 非模态下拉（与车辆查找/备件搜索一致），
-//   无匹配时保留自由文本（新车可录入未收录过的公司/车型）。
+//   无匹配时保留自由文本（新车可录入未收录过的车型）。
 // ============================================================
-void FrontDeskPage::onBrandLiveSearch()
-{
-    m_brandRows.clear();
-    m_brandCompleter->hideDropdown();
-    const QString t = m_nBrand->text().trimmed();
-    if (t.isEmpty())
-        return;
-
-    RemoteQuery q;
-    q.prepare("SELECT DISTINCT brand FROM t_vehicle "
-              "WHERE brand IS NOT NULL AND TRIM(brand) <> '' AND "
-              + SqlUtil::likeCond("brand", ":kw") +
-              " ORDER BY brand LIMIT 20");
-    q.bindValue(":kw", SqlUtil::likePattern(t));
-    if (!q.exec())
-        return;
-
-    QList<QStringList> rows;
-    QList<QVariant> ids;
-    while (q.next()) {
-        const QString v = q.value(0).toString().trimmed();
-        if (v.isEmpty()) continue;
-        rows << QStringList{v};
-        ids << rows.size() - 1;
-    }
-    if (rows.isEmpty())
-        return;
-    m_brandRows = rows;
-    m_brandCompleter->setResults(rows, ids);
-    m_brandCompleter->showDropdown();
-}
-
 void FrontDeskPage::onModelLiveSearch()
 {
     m_modelRows.clear();
@@ -1301,7 +1340,7 @@ void FrontDeskPage::fillVehicleData(int vid)
     qDebug() << "[fillVehicleData] 被调用, vid =" << vid;
 
     RemoteQuery q;
-    q.prepare("SELECT v.plate_number,v.vin,v.engine_number,v.model,v.brand,"
+    q.prepare("SELECT v.plate_number,v.vin,v.engine_number,v.model,"
               "v.color,v.fuel_type,v.transmission,v.current_mileage,"
               "v.purchase_date,v.owner_name,v.owner_phone,v.owner_address "
               "FROM t_vehicle v "
@@ -1316,22 +1355,23 @@ void FrontDeskPage::fillVehicleData(int vid)
 
     qDebug() << "[fillVehicleData] 车牌:" << q.value(0).toString()
              << " VIN:" << q.value(1).toString()
-             << " 车主:" << q.value(10).toString()
-             << " 电话:" << q.value(11).toString();
+             << " 车主:" << q.value(9).toString()
+             << " 电话:" << q.value(10).toString();
 
     m_dispPlate->setText(q.value(0).toString());
     m_dispVin->setText(q.value(1).toString());
     m_dispEngine->setText(q.value(2).toString());
     m_dispModel->setText(q.value(3).toString());
-    m_dispBrand->setText(q.value(4).toString());
-    m_dispColor->setCurrentText(q.value(5).toString());
-    m_dispFuel->setCurrentText(q.value(6).toString());
-    m_dispTrans->setCurrentText(q.value(7).toString());
-    m_spinMileage->setValue(q.value(8).toInt());
-    m_dispPurchase->setDate(q.value(9).toDate());
-    m_dispOwner->setText(q.value(10).toString());
-    m_dispPhone->setText(q.value(11).toString());
-    m_dispAddress->setText(q.value(12).toString());
+    m_dispColor->setCurrentText(q.value(4).toString());
+    m_dispFuel->setCurrentText(q.value(5).toString());
+    m_dispTrans->setCurrentText(q.value(6).toString());
+    m_spinMileage->setValue(q.value(7).toInt());
+    // 购车日期可能为空（NULL）：置为空置状态而不是"今天"
+    const QDate pd = q.value(8).toDate();
+    m_dispPurchase->setDate(pd.isValid() ? pd : kEmptyDate);
+    m_dispOwner->setText(q.value(9).toString());
+    m_dispPhone->setText(q.value(10).toString());
+    m_dispAddress->setText(q.value(11).toString());
     m_btnMaintenanceHistory->setVisible(true);
 
     qDebug() << "[fillVehicleData] 填充完成, m_dispPlate->text() =" << m_dispPlate->text();
@@ -1361,7 +1401,7 @@ void FrontDeskPage::onClearVehicle()
     m_lockedVid = 0; m_foundVid = 0; m_lastVehicleCount = 0;
     m_vehicleCompleter->hideDropdown();
     m_mergeTargetWoid = 0; m_mergeTargetOrderNo.clear();
-    m_editMode = false; m_editMatFee = 0;
+    m_editMode = false; m_editMatFee = 0; m_editOrderStatus.clear();
     m_btnDeleteOrder->setVisible(false);
     setPartsAreaMode(false);
     m_sPlate->clear(); m_sVin->clear(); m_sEngine->clear();
@@ -1378,7 +1418,7 @@ void FrontDeskPage::clearGhost()
     m_dispPlate->clear(); m_dispVin->clear(); m_dispEngine->clear();
     m_dispModel->clear(); m_dispOwner->clear(); m_dispPhone->clear(); m_dispAddress->clear();
     m_dispColor->setCurrentIndex(0); m_dispFuel->setCurrentIndex(0); m_dispTrans->setCurrentIndex(0);
-    m_dispPurchase->setDate(QDate::currentDate());
+    m_dispPurchase->setDate(kEmptyDate);   // 购车日期空置
     m_btnMaintenanceHistory->setVisible(false);
 }
 
@@ -1390,9 +1430,12 @@ void FrontDeskPage::clearGhost()
 // ============================================================
 bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
 {
+    // 可编辑的工单：未结算的都允许调出来改。
+    //   已派工            → 工时可改 + 备件可改（原行为）
+    //   待提单 / 已提单   → 工时可改，备件只读（备件已出库/已定，不允许再动）
     RemoteQuery q;
-    q.prepare("SELECT id, order_no FROM t_workorder "
-              "WHERE vehicle_id=:vid AND status='已派工' "
+    q.prepare("SELECT id, order_no, status FROM t_workorder "
+              "WHERE vehicle_id=:vid AND status IN ('已派工','待提单','已提单') "
               "ORDER BY created_at DESC");
     q.bindValue(":vid", vehicleId);
     if (!q.exec()) {
@@ -1402,9 +1445,10 @@ bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
         return true;
     }
 
-    QList<QPair<int,QString>> pending;   // <workorder_id, order_no>
+    struct PendingWo { int id; QString orderNo; QString status; };
+    QList<PendingWo> pending;
     while (q.next())
-        pending << qMakePair(q.value(0).toInt(), q.value(1).toString());
+        pending << PendingWo{ q.value(0).toInt(), q.value(1).toString(), q.value(2).toString() };
 
     if (pending.isEmpty()) {
         m_mergeTargetWoid = 0;
@@ -1412,23 +1456,30 @@ bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
         return true;
     }
 
-    // 有多条派工中工单时取最新的一条（已按 created_at DESC 排序）
-    const int    latestWoid    = pending.first().first;
-    const QString latestOrderNo = pending.first().second;
+    // 有多条工单时取最新的一条（已按 created_at DESC 排序）
+    const int     latestWoid     = pending.first().id;
+    const QString latestOrderNo  = pending.first().orderNo;
+    const QString latestStatus   = pending.first().status;
+    // 非「已派工」的工单：界面上备件区只读，只能改工时条目
+    const QString laborOnlyHint =
+        QString("\n注意：该工单已是「%1」，备件信息不可再改，只能修改工时条目。")
+            .arg(latestStatus);
 
     QString msg;
     if (pending.size() == 1)
-        msg = QString("该车辆已有在派工中的工单 %1。\n"
+        msg = QString("该车辆已有未结算的工单 %1（%2）。\n"
                       "是否编辑该工单？\n\n"
                       "选择「编辑原有工单」：派工界面显示该工单全部信息，保存时整体更新（不另建工单）；\n"
                       "选择「创建新工单」：另建一份新工单。")
-                  .arg(latestOrderNo);
+                  .arg(latestOrderNo, latestStatus);
     else
-        msg = QString("该车辆存在 %1 个在派工中的工单，最新为 %2。\n"
+        msg = QString("该车辆存在 %1 个未结算的工单，最新为 %2（%3）。\n"
                       "是否编辑最新工单？\n\n"
                       "选择「编辑原有工单」：派工界面显示该工单全部信息，保存时整体更新（不另建工单）；\n"
                       "选择「创建新工单」：另建一份新工单。")
-                  .arg(pending.size()).arg(latestOrderNo);
+                  .arg(pending.size()).arg(latestOrderNo, latestStatus);
+    if (latestStatus != "已派工")
+        msg += "\n" + laborOnlyHint;
 
     QMessageBox box(this);
     box.setWindowTitle("派工确认");
@@ -1460,6 +1511,8 @@ bool FrontDeskPage::confirmLockWithPendingOrders(int vehicleId)
 // setPartsAreaMode — 备件区两种形态：
 //   false=创建工单：标题"预计备件选择"，显示搜索/定价/确定/删除按钮，列表为本次预计备件
 //   true =编辑已有工单：标题"已出库备件"，隐藏搜索/定价/确定/删除按钮，列表独占显示已绑定备件
+// 编辑已有工单时备件区一律只读（"已提单/待提单"阶段备件已出库定案，不允许再改）；
+// 此时保存按钮改称"保存修改"（不是"保存并派工"）。
 // ============================================================
 void FrontDeskPage::setPartsAreaMode(bool editMode)
 {
@@ -1473,6 +1526,9 @@ void FrontDeskPage::setPartsAreaMode(bool editMode)
         m_partTable->setHorizontalHeaderLabels({"名称", "数量", "小计"});
     else
         m_partTable->setHorizontalHeaderLabels({"名称", "型号", "单价"});
+
+    if (m_btnCreate)
+        m_btnCreate->setText(editMode ? "保存修改" : "保存并派工");
 }
 
 // ============================================================
@@ -1484,7 +1540,8 @@ void FrontDeskPage::loadWorkOrderForEdit(int workorderId)
     RemoteQuery q;
     q.prepare("SELECT order_no, customer_service_id, mileage, repair_content, repair_date, "
               "estimated_date, shift, mechanic_tech_id, body_tech_id, paint_tech_id, "
-              "technician_id, main_technician, labor_fee, other_fee, management_fee, total_amount "
+              "technician_id, main_technician, labor_fee, other_fee, management_fee, total_amount, "
+              "status "
               "FROM t_workorder WHERE id=:woid");
     q.bindValue(":woid", workorderId);
     if (!q.exec() || !q.next()) {
@@ -1493,6 +1550,8 @@ void FrontDeskPage::loadWorkOrderForEdit(int workorderId)
     }
 
     m_editMode = true;
+    // 被编辑工单的状态：已派工=工时可改+备件可改；待提单/已提单=工时可改+备件只读
+    m_editOrderStatus = q.value(16).toString();
 
     // ---- 派工区回填 ----
     m_editOrderNo->setText(q.value(0).toString());
@@ -1579,7 +1638,7 @@ void FrontDeskPage::loadWorkOrderForEdit(int workorderId)
         row++;
     }
 
-    // ---- 删除工单按钮：仅当工单未被任何备件绑定时可用 ----
+    // ---- 删除工单按钮：仅「已派工」且未被任何备件绑定时可用 ----
     int boundCount = 0;
     {
         RemoteQuery cq;
@@ -1587,9 +1646,16 @@ void FrontDeskPage::loadWorkOrderForEdit(int workorderId)
         cq.bindValue(":woid", workorderId);
         if (cq.exec() && cq.next()) boundCount = cq.value(0).toInt();
     }
+    const bool canDelete = (m_editOrderStatus == "已派工") && (boundCount == 0);
     m_btnDeleteOrder->setVisible(true);
-    m_btnDeleteOrder->setEnabled(boundCount == 0);
-    m_btnDeleteOrder->setToolTip(boundCount > 0 ? "该工单已绑定备件，无法删除" : "删除该工单（不可恢复）");
+    m_btnDeleteOrder->setEnabled(canDelete);
+    if (m_editOrderStatus != "已派工")
+        m_btnDeleteOrder->setToolTip(
+            QString("该工单已是「%1」，不能删除").arg(m_editOrderStatus));
+    else if (boundCount > 0)
+        m_btnDeleteOrder->setToolTip("该工单已绑定备件，无法删除");
+    else
+        m_btnDeleteOrder->setToolTip("删除该工单（不可恢复）");
 
     setPartsAreaMode(true);
     onFeeChanged();   // 以界面当前内容重算工时/材料/合计显示
@@ -1646,14 +1712,12 @@ void FrontDeskPage::onDeleteWorkOrder()
 }
 
 // ============================================================
-// 刷新新车录入的车型/公司输入（历史值通过 onModelLiveSearch/onBrandLiveSearch
+// 刷新新车录入的车型输入（历史值通过 onModelLiveSearch
 // 逐键模糊搜索即时加载，这里仅清空输入，避免残留上一次搜索的文字）
 // ============================================================
 void FrontDeskPage::refreshCarModelList()
 {
-    m_nBrand->clear();
     m_nModel->clear();
-    m_brandCompleter->hideDropdown();
     m_modelCompleter->hideDropdown();
 }
 
@@ -1663,11 +1727,10 @@ void FrontDeskPage::refreshCarModelList()
 void FrontDeskPage::resetNewCarForm()
 {
     m_nPlate->clear(); m_nVin->clear(); m_nEngine->clear();
-    m_nBrand->clear(); m_nModel->clear();
+    m_nModel->clear();
     m_nOwner->clear(); m_nPhone->clear(); m_nAddress->clear();
     m_nColor->setCurrentIndex(0); m_nFuel->setCurrentIndex(0); m_nTrans->setCurrentIndex(0);
-    m_nPurchase->setDate(QDate::currentDate());
-    m_brandCompleter->hideDropdown();
+    m_nPurchase->setDate(kEmptyDate);   // 购车日期默认空置
     m_modelCompleter->hideDropdown();
 }
 
@@ -1736,16 +1799,15 @@ void FrontDeskPage::onSaveNewCar()
     // 新车+车主 在一个事务内写入（经 4s-server 的 transaction 命令原子执行）
     QJsonArray steps;
     steps.append(RemoteDb::step(
-        "INSERT INTO t_vehicle (plate_number,vin,engine_number,model,brand,purchase_date,"
+        "INSERT INTO t_vehicle (plate_number,vin,engine_number,model,purchase_date,"
         "color,fuel_type,transmission) "
-        "VALUES (:p,:v,:e,:m,:brand,:pd,:col,:fuel,:trans)",
+        "VALUES (:p,:v,:e,:m,:pd,:col,:fuel,:trans)",
         QJsonObject{
             { ":p", np },
             { ":v", RemoteDb::v(m_nVin->text().trimmed().isEmpty() ? QVariant(QString()) : m_nVin->text().trimmed()) },
             { ":e", RemoteDb::v(m_nEngine->text().trimmed().isEmpty() ? QVariant(QString()) : m_nEngine->text().trimmed()) },
             { ":m", md },
-            { ":brand", RemoteDb::v(m_nBrand->text().trimmed().isEmpty() ? QVariant(QString()) : m_nBrand->text().trimmed()) },
-            { ":pd", RemoteDb::v(m_nPurchase->date()) },
+            { ":pd", dateOrNull(m_nPurchase) },   // 未填购车日期 → NULL
             { ":col", RemoteDb::v(m_nColor->currentText().isEmpty() ? QVariant(QString()) : m_nColor->currentText()) },
             { ":fuel", RemoteDb::v(m_nFuel->currentText().isEmpty() ? QVariant(QString()) : m_nFuel->currentText()) },
             { ":trans", RemoteDb::v(m_nTrans->currentText().isEmpty() ? QVariant(QString()) : m_nTrans->currentText()) },
@@ -1826,18 +1888,17 @@ void FrontDeskPage::onSaveVehicleInfo()
     QJsonArray steps;
     steps.append(RemoteDb::step(
         "UPDATE t_vehicle SET plate_number=:p, vin=:v, engine_number=:e, "
-        "model=:m, brand=:brand, color=:col, fuel_type=:fuel, transmission=:trans, "
+        "model=:m, color=:col, fuel_type=:fuel, transmission=:trans, "
         "purchase_date=:pd, current_mileage=:mile WHERE id=:id",
         QJsonObject{
             { ":p", m_dispPlate->text().trimmed() },
             { ":v", RemoteDb::v(m_dispVin->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispVin->text().trimmed()) },
             { ":e", RemoteDb::v(m_dispEngine->text().trimmed().isEmpty() ? QVariant(QString()) : m_dispEngine->text().trimmed()) },
             { ":m", m_dispModel->text().trimmed() },
-            { ":brand", m_dispBrand->text().trimmed() },
             { ":col", RemoteDb::v(m_dispColor->currentText().isEmpty() ? QVariant(QString()) : m_dispColor->currentText()) },
             { ":fuel", RemoteDb::v(m_dispFuel->currentText().isEmpty() ? QVariant(QString()) : m_dispFuel->currentText()) },
             { ":trans", RemoteDb::v(m_dispTrans->currentText().isEmpty() ? QVariant(QString()) : m_dispTrans->currentText()) },
-            { ":pd", RemoteDb::v(m_dispPurchase->date()) },
+            { ":pd", dateOrNull(m_dispPurchase) },   // 清空购车日期 → NULL
             { ":mile", m_spinMileage->value() },
             { ":id", m_lockedVid },
         }));
@@ -2139,9 +2200,9 @@ void FrontDeskPage::onCreateWorkOrder()
                 "(vehicle_id, workorder_id, status, maintenance_date, entry_date, mileage, service_advisor, "
                 "technicians, labor_fee, material_fee, other_fee, management_fee, "
                 "total_amount, cumulative_amount, repair_summary, repair_items) "
-                "VALUES (:vid, :woid, '已派工', :md, :entry, :mile, :svc, :tech, "
+                "VALUES (:vid, :woid, :wostatus, :md, :entry, :mile, :svc, :tech, "
                 ":labor, :mat, :other, :mgmt, :total, :total, :repair, :ritems) "
-                "ON DUPLICATE KEY UPDATE status='已派工', entry_date=VALUES(entry_date), "
+                "ON DUPLICATE KEY UPDATE status=VALUES(status), entry_date=VALUES(entry_date), "
                 "mileage=VALUES(mileage), service_advisor=VALUES(service_advisor), "
                 "technicians=VALUES(technicians), labor_fee=VALUES(labor_fee), "
                 "material_fee=VALUES(material_fee), "
@@ -2154,6 +2215,8 @@ void FrontDeskPage::onCreateWorkOrder()
                     { ":entry", RemoteDb::v(m_dateRepair->date()) }, { ":mile", m_spinMileage->value() },
                     { ":svc", RemoteDb::v(m_cmbAdvisor->currentText().isEmpty() ? QString() : m_cmbAdvisor->currentText()) },
                     { ":tech", RemoteDb::v(techNames.isEmpty() ? QString() : techNames.join(", ")) },
+                    // 已有工单保持原状态（已派工/待提单/已提单），不被编辑动作改回"已派工"
+                    { ":wostatus", m_editOrderStatus.isEmpty() ? QString("已派工") : m_editOrderStatus },
                     { ":labor", labor }, { ":mat", m_editMatFee }, { ":other", oth }, { ":mgmt", mgmt },
                     { ":total", orderTotal },
                     { ":repair", RemoteDb::v(rs.isEmpty() ? QString() : rs) },
@@ -2409,10 +2472,11 @@ QList<SettlementSection> FrontDeskPage::buildQuoteSections()
     auto esc = [](const QString &s) { return s.toHtmlEscaped(); };
 
     // ============ 3. 取车辆完整信息（补充一次查询以获取所有字段） ============
-    QString sBrand, sColor, sFuel, sTrans, sPurchase, sAddress, sOwner2, sPhone2;
+    // 公司/厂家已不再采集，报价单上只显示车型（不查 v.brand）
+    QString sVin, sEngine, sColor, sFuel, sTrans, sPurchase, sAddress, sOwner2, sPhone2;
     if (m_lockedVid > 0) {
         RemoteQuery q;
-        q.prepare("SELECT v.plate_number, v.vin, v.engine_number, v.model, v.brand, "
+        q.prepare("SELECT v.plate_number, v.vin, v.engine_number, v.model, "
                   "v.color, v.fuel_type, v.transmission, v.purchase_date, "
                   "v.owner_name, v.owner_phone, v.owner_address "
                   "FROM t_vehicle v "
@@ -2420,20 +2484,23 @@ QList<SettlementSection> FrontDeskPage::buildQuoteSections()
         q.bindValue(":id", m_lockedVid);
         q.exec();
         if (q.next()) {
-            sBrand    = q.value(4).toString();   // 公司/厂家（真实 brand 列）
-            sColor    = q.value(5).toString();
-            sFuel     = q.value(6).toString();
-            sTrans    = q.value(7).toString();
-            sPurchase = q.value(8).toDate().toString("yyyy-MM-dd");
-            sOwner2   = q.value(9).toString();
-            sPhone2   = q.value(10).toString();
-            sAddress  = q.value(11).toString();
+            sVin      = q.value(1).toString();
+            sEngine   = q.value(2).toString();
+            sColor    = q.value(4).toString();
+            sFuel     = q.value(5).toString();
+            sTrans    = q.value(6).toString();
+            sPurchase = q.value(7).toDate().toString("yyyy-MM-dd");
+            sOwner2   = q.value(8).toString();
+            sPhone2   = q.value(9).toString();
+            sAddress  = q.value(10).toString();
         }
     }
 
     const QString orderNo     = m_editOrderNo->text();
-    const QString model       = sBrand.isEmpty() ? m_dispModel->text() : sBrand + " " + m_dispModel->text();
-    const QString purchase    = sPurchase.isEmpty() ? m_dispPurchase->date().toString("yyyy-MM-dd") : sPurchase;
+    const QString model       = m_dispModel->text();
+    const QString purchase    = !sPurchase.isEmpty() ? sPurchase
+                              : (isDateEmpty(m_dispPurchase) ? QString()
+                                                             : m_dispPurchase->date().toString("yyyy-MM-dd"));
     const QString ownerName   = sOwner2.isEmpty() ? m_dispOwner->text() : sOwner2;
     const QString ownerPhone  = sPhone2.isEmpty() ? m_dispPhone->text() : sPhone2;
     const QString ownerAddr   = sAddress.isEmpty() ? m_dispAddress->text() : sAddress;
@@ -2453,7 +2520,7 @@ QList<SettlementSection> FrontDeskPage::buildQuoteSections()
     QString vehicleHtml =
         "<div class='area-title'>车辆信息</div>"
         "<table class='form' width='100%'>"
-        "<tr><td>车牌号：%PLATE%</td><td>品牌/车型：%MODEL%</td><td>颜 色：%COLOR%</td></tr>"
+        "<tr><td>车牌号：%PLATE%</td><td>车型：%MODEL%</td><td>颜 色：%COLOR%</td></tr>"
         "<tr><td>车架号(VIN)：%VIN%</td><td>发动机号：%ENGINE%</td><td>燃油类型：%FUEL%</td></tr>"
         "<tr><td>当前里程：%MILEAGE% km</td><td>购车日期：%PURCHASE%</td><td>变速箱：%TRANS%</td></tr>"
         "</table>";
@@ -2566,6 +2633,31 @@ QList<SettlementSection> FrontDeskPage::buildQuoteSections()
         .replace("%SETTLER%", esc(settlementPerson))
         .replace("%SETTLEDATE%", settlementDate)
         .replace("%SIGN%", QString("________________"));
+
+    // ============ 4b. 填充车辆/车主/工单/报修描述区块的占位符 ============
+    // （这几个区块此前只建了模板、没做替换，打印出来是 %PLATE% 这样的原文）
+    vehicleHtml.replace("%PLATE%",  esc(m_dispPlate->text()))
+               .replace("%MODEL%",  esc(F(model)))
+               .replace("%COLOR%",  esc(F(sColor)))
+               .replace("%VIN%",    esc(F(sVin.isEmpty() ? m_dispVin->text() : sVin)))
+               .replace("%ENGINE%", esc(F(sEngine.isEmpty() ? m_dispEngine->text() : sEngine)))
+               .replace("%FUEL%",   esc(F(sFuel)))
+               .replace("%MILEAGE%", esc(sMileage))
+               .replace("%PURCHASE%", esc(F(purchase)))
+               .replace("%TRANS%",  esc(F(sTrans)));
+
+    ownerHtml.replace("%OWNER%",      esc(F(ownerName)))
+             .replace("%OWNERPHONE%", esc(F(ownerPhone)))
+             .replace("%OWNERADDR%",  esc(F(ownerAddr)));
+
+    orderHtml.replace("%ADVISOR%", esc(F(m_cmbAdvisor->currentText())))
+             .replace("%TECHS%",   esc(techs))
+             .replace("%SHIFT%",   esc(F(m_cmbShift->currentText())))
+             .replace("%REPDATE%", m_dateRepair->date().toString("yyyy-MM-dd"))
+             .replace("%ESTDATE%", m_dateEstimated->date().toString("yyyy-MM-dd"))
+             .replace("%NOW%",     esc(sNow));
+
+    contentBlock.replace("%CONTENT%", esc(content).replace("\n", "<br>"));
 
     // ============ 5. 区块列表 ============
     out << SettlementSection{PrintUtil::settlementWrap(headHtml),    false}

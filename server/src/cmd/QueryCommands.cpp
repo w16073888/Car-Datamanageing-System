@@ -59,10 +59,13 @@ static QString buildAuditDetail(const QString &sql, const QJsonObject &params)
 void QueryCommands::registerCommands()
 {
     CommandDispatcher &d = CommandDispatcher::instance();
-    // ping：无需登录
+    // ping：客户端会话心跳。需要登录 —— 走 CommandDispatcher 的会话校验分支，
+    // 顺带执行 touch() 刷新会话活动时间，使客户端长时间无操作也不会被
+    // SESSION_TIMEOUT_MS（1 小时）判定过期。会话已失效时返回"未登录或登录已过期"，
+    // 客户端据此停掉心跳。
     d.registerHandler("ping", [](const QJsonObject &, const SessionInfo *) {
         return QJsonObject{ { "ok", true }, { "data", QJsonObject{ { "pong", true } } } };
-    }, false);
+    });
     d.registerHandler("query", [](const QJsonObject &params, const SessionInfo *s) {
         return handleQuery(params, s);
     });

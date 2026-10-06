@@ -14,6 +14,10 @@
 #include <QStandardItemModel>
 #include <QJsonArray>
 #include <QPair>
+#include <QSet>
+#include <QPointer>
+#include <QElapsedTimer>
+#include <QMenu>
 #include "remote/RemoteModel.h"
 #include "widgets/SearchCompleter.h"
 
@@ -29,7 +33,7 @@ struct PurchaseItem {
     QString applicableModel;   // 适用车型（选填，参与备件合并）
     double cost = 0.0;
     double price = 0.0;
-    int    qty = 1;
+    double qty = 1.0;          // 支持小数（如 2.5 米 / 1.5 升）
 };
 
 class WarehousePage : public QWidget
@@ -99,6 +103,18 @@ private:
                                   const QString &statusFilter = "已派工");
     /// 备件领取：刷新锁定工单的状态栏（车牌号）
     void updateIssueOrderStatus();
+    /// 备件领取：由 m_issueOrderNo 解析工单ID（0=未锁定）
+    int issueWorkOrderId() const;
+    /// 备件领取：鼠标悬停在「已出库备件」按钮上时，弹出下拉列出本工单已绑定备件
+    /// fromClick=true 表示点击触发（未锁定工单时会弹提示；悬停时静默）
+    void showBoundPartsMenu(bool fromClick = false);
+    /// 备件领取：刷新"本工单已出库备件"ID集合（供销售价列判断可否编辑，避免在
+    /// flags() 里查库——那里每个单元格都会被调用，查库会把表格拖垮）
+    void refreshIssueBoundParts();
+    /// 备件领取：该行备件是否已出库给当前锁定的本工单（决定销售价能否双击改）
+    bool issueRowPartBoundToWorkOrder(int row) const;
+    /// 备件领取：销售价列提交 → 只改本工单的明细单价，不碰备件目录价
+    void onIssuePriceEdited(int row, const QVariant &value);
     /// 备件退库：锁定工单ID + 刷新状态栏（车牌号）
     void updateReturnOrderStatus();
     /// 生成合并查询SQL: 从 t_parts JOIN t_part_instance，按(part_no,name,spec,supplier)分组
@@ -153,6 +169,10 @@ private:
     QDoubleSpinBox *m_spinIssueQty;
     QPushButton *m_btnIssue;
     QLabel *m_issueStatusBar;   // 状态栏：显示锁定工单号和车牌号
+    QPushButton *m_btnBoundParts;   // 「本工单已出库备件」：鼠标悬停即弹出下拉
+    QPointer<QMenu> m_boundPartsMenu;      // 悬停下拉（开着时不再重复弹出）
+    QElapsedTimer   m_boundPartsCooldown;  // 下拉刚关闭后的冷却，避免"关闭→悬停"反复弹
+    QSet<int> m_issueBoundPartIds;   // 本工单已出库的备件目录ID（销售价列据此判断可否改）
     int m_issuePartId;          // 选中的备件目录ID (t_parts.id)
 
     // ==================== Tab 1: 材料结算/提单 (Stage 3) ====================
@@ -184,7 +204,7 @@ private:
     QLineEdit *m_purApplicableModel; // 适用车型（选填）
     QDoubleSpinBox *m_purCost;
     QDoubleSpinBox *m_purPrice;
-    QSpinBox *m_purQty;
+    QDoubleSpinBox *m_purQty;   // 入库数量（支持 3 位小数）
     QPushButton *m_btnPurAddItem;    // 加入清单
     QPushButton *m_btnPurConfirm;    // 确认入库
     QList<PurchaseItem> m_purchaseList; // 本批入库清单
@@ -217,7 +237,7 @@ private:
     QPushButton *m_btnPurRetSearch;
     QTableView *m_purRetTable;
     RemoteModel *m_purRetModel;
-    QSpinBox *m_purRetQty;
+    QDoubleSpinBox *m_purRetQty;   // 退货数量（支持小数）
     QPushButton *m_btnPurRetConfirm;
     int m_purRetPartId;         // 选中的备件目录ID
 };

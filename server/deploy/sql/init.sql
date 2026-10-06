@@ -59,7 +59,7 @@ INSERT INTO t_employee (employee_id, name, password, position, phone) VALUES
 CREATE TABLE t_vehicle (
     id                      INT             PRIMARY KEY AUTO_INCREMENT  COMMENT '车辆ID',
     owner_name              VARCHAR(50)                                COMMENT '车主姓名',
-    owner_phone             VARCHAR(20)                                COMMENT '车主电话',
+    owner_phone             VARCHAR(100)                               COMMENT '车主电话（可含1~3个号码）',
     owner_address           VARCHAR(200)                               COMMENT '车主地址',
     plate_number            VARCHAR(20)     NOT NULL UNIQUE             COMMENT '车牌号',
     vin                     VARCHAR(50)                                COMMENT '车架号(VIN)',
@@ -195,9 +195,13 @@ CREATE TABLE t_technician_work_record (
 -- 8. 备件实例表
 -- ============================================================
 CREATE TABLE t_part_instance (
-    id                  INT             PRIMARY KEY AUTO_INCREMENT  COMMENT '实例ID',
+    id                  INT             PRIMARY KEY AUTO_INCREMENT  COMMENT '批次ID',
     part_id             INT             NOT NULL                   COMMENT '关联备件目录ID',
-    instance_sn         VARCHAR(50)     NOT NULL UNIQUE             COMMENT '实例唯一编号',
+    spec                VARCHAR(100)                               COMMENT '规格型号(冗余,参与批次合并)',
+    supplier            VARCHAR(100)                               COMMENT '供应商/生产厂家(冗余,参与批次合并)',
+    applicable_model    VARCHAR(200)                               COMMENT '适用车型(冗余,参与批次合并)',
+    instance_sn         VARCHAR(50)     NOT NULL UNIQUE             COMMENT '批次编号',
+    quantity            DECIMAL(10,3)   NOT NULL DEFAULT 1         COMMENT '本批数量(支持小数)',
     status              ENUM('在库','已领出','已安装','已退库','已退货')
                                         NOT NULL DEFAULT '在库'     COMMENT '实例状态',
     vehicle_id          INT             NULL                       COMMENT '安装到的车辆ID',
@@ -221,7 +225,7 @@ CREATE TABLE t_part_instance (
     FOREIGN KEY (part_id)       REFERENCES t_parts(id),
     FOREIGN KEY (vehicle_id)    REFERENCES t_vehicle(id)    ON DELETE SET NULL,
     FOREIGN KEY (workorder_id)  REFERENCES t_workorder(id)  ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='备件实例表(一物一记录)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='备件批次表(一批一记录,数量支持小数)';
 
 -- ============================================================
 -- 9. 工单备件使用表
@@ -459,12 +463,12 @@ SELECT
     p.warranty_period,
     p.applicable_model,
     ROUND(SUM(CASE WHEN i.status = '在库' THEN
-          (1 - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi
+          (i.quantity - COALESCE((SELECT SUM(wi.quantity) FROM t_workorder_item wi
                          WHERE wi.part_instance_id = i.id AND wi.item_type = '材料'), 0))
           ELSE 0 END), 3)                           AS stock_in_warehouse,
-    COUNT(CASE WHEN i.status = '已领出' THEN 1 END) AS stock_checked_out,
-    COUNT(CASE WHEN i.status = '已安装' THEN 1 END) AS stock_installed,
-    COUNT(CASE WHEN i.status NOT IN ('已退货') THEN 1 END) AS stock_total
+    ROUND(SUM(CASE WHEN i.status = '已领出' THEN i.quantity ELSE 0 END), 3) AS stock_checked_out,
+    ROUND(SUM(CASE WHEN i.status = '已安装' THEN i.quantity ELSE 0 END), 3) AS stock_installed,
+    ROUND(SUM(CASE WHEN i.status <> '已退货' THEN i.quantity ELSE 0 END), 3) AS stock_total
 FROM t_parts p
 LEFT JOIN t_part_instance i ON i.part_id = p.id
 GROUP BY p.id, p.part_no, p.name, p.spec, p.supplier,

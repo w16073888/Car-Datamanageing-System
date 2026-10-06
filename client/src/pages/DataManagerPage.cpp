@@ -340,7 +340,7 @@ void DataManagerPage::loadOperationLog()
         "    WHEN 't_workorder' THEN '工单表' WHEN 't_parts' THEN '备件表' "
         "    WHEN 't_inventory_log' THEN '库存流水表' WHEN 't_settlement' THEN '结算表' "
         "    WHEN 't_vehicle_transaction' THEN '交易历史表' WHEN 't_workorder_item' THEN '工单明细表' "
-        "    WHEN 't_quote_item' THEN '报价明细表' WHEN 't_part_instance' THEN '备件实例表' "
+        "    WHEN 't_quote_item' THEN '报价明细表' WHEN 't_part_instance' THEN '备件批次表' "
         "    WHEN 't_part_purchase' THEN '采购记录表' WHEN 't_maintenance_history' THEN '维修历史表' "
         "    WHEN 't_technician_work_record' THEN '技师工作记录表' "
         "    WHEN 't_system_log' THEN '系统日志表' "

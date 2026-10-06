@@ -8,7 +8,7 @@ setlocal enabledelayedexpansion
 
 rem ============ 配置区（改这里的值） ============
 set "DB_USER=garage"
-set "DB_PWD=123456"
+set "DB_PWD=008329"
 set "DB_NAME=garagedb"
 set "KEEP_DAYS=14"
 rem  如果找不到 mysqldump.exe（PATH 和常见安装路径都不对），

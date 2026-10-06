@@ -48,6 +48,7 @@ bool RemoteClient::connectToServer(const QString &host, quint16 port, int timeou
 
 void RemoteClient::disconnect()
 {
+    stopHeartbeat();          // 断开就别再发心跳了
     m_manuallyDisconnecting = true;
     if (m_sock) {
         if (m_sock->state() == QAbstractSocket::ConnectedState)
@@ -78,6 +79,47 @@ QString RemoteClient::lastError() const
 void RemoteClient::setToken(const QString &token)
 {
     m_token = token;
+    // 登录拿到 token 就开始心跳；token 被清掉（如退出登录）就停
+    if (token.isEmpty())
+        stopHeartbeat();
+    else
+        startHeartbeat();
+}
+
+// ============================================================
+// 会话心跳
+//   背景：服务端 SESSION_TIMEOUT_MS = 1 小时无活动即作废会话
+//   （AuthManager.cpp 的 session() 判定，CommandDispatcher 每次请求 touch() 续命）。
+//   客户端挂机不动时没有任何请求，会话就会被清掉，下一次操作直接
+//   报"未登录或登录已过期"。这里定期发一个 ping 把活动时间往后推。
+// ============================================================
+void RemoteClient::startHeartbeat()
+{
+    if (!m_heartbeat) {
+        m_heartbeat = new QTimer(this);
+        m_heartbeat->setInterval(HEARTBEAT_INTERVAL_MS);
+        connect(m_heartbeat, &QTimer::timeout, this, [this]() {
+            // 有请求正在飞（含耗时的查询/事务）时不插队，等下一拍
+            if (!m_pending.isEmpty() || !isConnected() || m_token.isEmpty())
+                return;
+            const QJsonObject r = call("ping", QJsonObject(), 5000);
+            // 会话真的没了（服务端重启、超时被清）→ 停掉心跳，别再无谓地发
+            if (!r.value("ok").toBool()) {
+                const QString err = r.value("error").toString();
+                if (err.contains("未登录") || err.contains("过期")) {
+                    qWarning() << "[RemoteClient] 心跳发现会话已失效:" << err;
+                    stopHeartbeat();
+                }
+            }
+        });
+    }
+    m_heartbeat->start();
+}
+
+void RemoteClient::stopHeartbeat()
+{
+    if (m_heartbeat)
+        m_heartbeat->stop();
 }
 
 QString RemoteClient::token() const

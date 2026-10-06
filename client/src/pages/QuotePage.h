@@ -40,6 +40,18 @@ private:
     void setupUI();
     void loadOrderInfo(const QString &orderNo);
     void updateActionButtons(const QString &status);
+
+    // ---- 工时条目增删 ----
+    // 工时表是"一行两条"（左组列 0-3 / 右组列 5-8），条目顺序即 m_laborEntries 顺序
+    struct LaborEntry { int id = 0; QString type, person, content; double fee = 0; };
+    QList<LaborEntry> m_laborEntries;   // 当前显示的工时条目（结构 + 初值）
+    QList<int> m_laborDeletedIds;       // 本次编辑删掉的条目 id（保存时 DELETE）
+    bool m_laborEditable = false;       // 当前工单是否允许增删工时条目
+    void rebuildLaborTable();           // 按 m_laborEntries 重建工时表
+    void syncLaborEntriesFromTable();   // 把表格里的编辑回读进 m_laborEntries
+    void onAddLaborRow();               // ＋新增工时
+    void onDeleteLaborRow();            // －删除选中（按当前单元格定位到左/右组）
+    QString techNameForType(const QString &type) const;   // 按类别取本工单主修人姓名
     // 新版式结算单分区块（方案B：分区块+QPainter拼版，纵向铺满）
     QList<SettlementSection> buildSettlementSections() const;
     void savePartPriceEdits();  // 保存材料单价编辑并重算/写回 material_fee
@@ -63,6 +75,8 @@ private:
     QPushButton *m_btnPrint;           // 打印结算单（已提单时显示）
     QPushButton *m_btnReverseSettle;   // 反结算（已结算时显示）
     QPushButton *m_btnSaveEdit;        // 保存修改（可编辑状态下显示）
+    QPushButton *m_btnAddLabor;        // ＋新增工时条目（可编辑状态下显示）
+    QPushButton *m_btnDelLabor;        // －删除选中工时条目（可编辑状态下显示）
 
     // ---- 费用编辑控件 ----
     QDoubleSpinBox *m_editOtherFee;    // 其他费编辑

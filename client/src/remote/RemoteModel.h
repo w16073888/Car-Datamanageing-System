@@ -9,6 +9,7 @@
 #include <QSet>
 #include <QSqlError>
 #include <QSqlRecord>
+#include <functional>
 
 class RemoteQuery;
 
@@ -50,6 +51,16 @@ public:
     void setQueryEditColumn(int column, const QString &table,
                             int pkColumnIndex, const QString &pkColumnDb,
                             const QString &valueColumn);
+
+    // 只读查询模式的「提交由调用方处理」的就地编辑列：
+    //   editable(row)   → 该行这一格是否可编辑（未设置则整列可编辑）
+    //   commit(row, v)  → 提交时由调用方自行写库 / 刷新视图
+    // 与 setQueryEditColumn 的区别：本接口不自动写库、也不改模型内的值
+    // （调用方刷新数据后自然显示新值）。用于"改的其实是别处的数据"的场景，
+    // 例如备件领取里改的是本工单的明细单价，而不是备件目录的销售价。
+    void setQueryEditColumnHandler(int column,
+                                   std::function<bool(int)> editable,
+                                   std::function<void(int, const QVariant &)> commit);
 
     // ---- 可编辑表模式（替代 QSqlTableModel）----
     void setTable(const QString &table);
@@ -103,6 +114,13 @@ private:
     // 只读查询模式下允许就地编辑的列（column → 写库配置）
     struct QueryEditCol { QString table; int pkColumnIndex; QString pkColumnDb; QString valueColumn; };
     QHash<int, QueryEditCol> m_queryEditCols;
+
+    // 只读查询模式下"提交交给调用方"的就地编辑列
+    struct QueryEditHandler {
+        std::function<bool(int)> editable;
+        std::function<void(int, const QVariant &)> commit;
+    };
+    QHash<int, QueryEditHandler> m_queryEditHandlers;
     QHash<int, QVariantList> m_pendingEdits;  // row → 修改后的行（OnManualSubmit）
     QList<QString> m_pendingDeletes;    // 待删除行的主键值
     QSqlError m_lastError;

@@ -56,6 +56,13 @@ void RemoteModel::setQueryEditColumn(int column, const QString &table,
     m_queryEditCols[column] = { table, pkColumnIndex, pkColumnDb, valueColumn };
 }
 
+void RemoteModel::setQueryEditColumnHandler(int column,
+                                            std::function<bool(int)> editable,
+                                            std::function<void(int, const QVariant &)> commit)
+{
+    m_queryEditHandlers[column] = { std::move(editable), std::move(commit) };
+}
+
 // ---------------- 可编辑表模式 ----------------
 
 void RemoteModel::setTable(const QString &table)
@@ -68,6 +75,7 @@ void RemoteModel::setTable(const QString &table)
     m_headers.clear();
     m_readOnlyColumns.clear();
     m_queryEditCols.clear();
+    m_queryEditHandlers.clear();
     m_sortColumn = -1;
     m_sortOrder = Qt::AscendingOrder;
     emit headerDataChanged(Qt::Horizontal, 0, last);
@@ -296,6 +304,17 @@ bool RemoteModel::setData(const QModelIndex &index, const QVariant &value, int r
 
     const int row = index.row();
     const int col = index.column();
+
+    // 只读查询模式：提交交给调用方处理（调用方写库后自行刷新视图）
+    if (m_queryEditHandlers.contains(col)) {
+        const QueryEditHandler &h = m_queryEditHandlers[col];
+        if (h.editable && !h.editable(row))
+            return false;
+        if (h.commit)
+            h.commit(row, value);
+        return true;
+    }
+
     if (m_rows[row][col] == value)
         return true;
 
@@ -374,9 +393,15 @@ Qt::ItemFlags RemoteModel::flags(const QModelIndex &index) const
     if (!index.isValid())
         return Qt::NoItemFlags;
     Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
-    if (m_queryEditCols.contains(index.column())
-        || (isEditable() && !m_readOnlyColumns.contains(index.column())))
+    if (m_queryEditCols.contains(index.column())) {
         f |= Qt::ItemIsEditable;
+    } else if (m_queryEditHandlers.contains(index.column())) {
+        const QueryEditHandler &h = m_queryEditHandlers[index.column()];
+        if (!h.editable || h.editable(index.row()))
+            f |= Qt::ItemIsEditable;
+    } else if (isEditable() && !m_readOnlyColumns.contains(index.column())) {
+        f |= Qt::ItemIsEditable;
+    }
     return f;
 }
 
